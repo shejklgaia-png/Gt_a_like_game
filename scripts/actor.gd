@@ -124,6 +124,11 @@ func _physics_process(delta: float) -> void:
 		velocity.z = move_toward(velocity.z, 0.0, delta * 13.0)
 	velocity.y = -0.4 if is_on_floor() else velocity.y - 19.6 * delta
 	move_and_slide()
+	if not officer:
+		if sidewalk_axis == 0:
+			position.x = clampf(position.x, anchor.x - 0.38, anchor.x + 0.38)
+		else:
+			position.z = clampf(position.z, anchor.z - 0.38, anchor.z + 0.38)
 	moving = move_toward(moving, 1.0 if is_walking else 0.0, delta * 7.0)
 
 
