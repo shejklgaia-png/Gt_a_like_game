@@ -21,6 +21,10 @@ var brake_light_on: bool = false
 var health: float = 150.0
 var dented: bool = false
 var total_driven: float = 0.0
+var wheels: Array[MeshInstance3D] = []
+var sensor_timer: float = 0.0
+var front_blocked: bool = false
+var stationary_time: float = 0.0
 
 
 func setup(p_axis: int, p_travel: float, p_lane: float, color: Color) -> void:
@@ -60,6 +64,7 @@ func _ready() -> void:
 			wheel.position = Vector3(side * 1.08, -0.46, fore_aft)
 			wheel.rotation.z = PI / 2.0
 			add_child(wheel)
+			wheels.append(wheel)
 	for side in [-0.78, 0.78]:
 		Shapes.box(self, Vector3(side, -0.12, -2.15), Vector3(0.33, 0.20, 0.05), Color("#fff1bc"))
 		var light := Shapes.box(self, Vector3(side, -0.12, 2.15), Vector3(0.33, 0.20, 0.05), Color("#c92d4c"))
@@ -72,6 +77,9 @@ func _process(delta: float) -> void:
 	door_angle = lerpf(door_angle, target_angle, clampf(delta * 11.0, 0.0, 1.0))
 	if is_instance_valid(door_hinge):
 		door_hinge.rotation.y = door_angle
+	for wheel in wheels:
+		if is_instance_valid(wheel):
+			wheel.rotate_object_local(Vector3.UP, drive_speed / 0.43 * delta)
 
 
 func open_driver_door(open: bool) -> void:
@@ -125,11 +133,27 @@ func _physics_process(delta: float) -> void:
 		else:
 			heading.x = travel
 		rotation.y = atan2(-heading.x, -heading.z)
-		var desired := 0.0 if pedestrian_ahead() or TrafficRules.must_stop_car(axis, travel, global_position) else npc_speed
+		sensor_timer -= delta
+		if sensor_timer <= 0.0:
+			sensor_timer = 0.12
+			front_blocked = pedestrian_ahead()
+		var traffic_red := TrafficRules.must_stop_car(axis, travel, global_position)
+		var desired := 0.0 if front_blocked or traffic_red else npc_speed
 		drive_speed = move_toward(drive_speed, desired, delta * (26.0 if desired == 0.0 else 8.0))
 		velocity = heading * drive_speed
+		# Smoothly recover the correct lane after side impacts.
+		var difference := road_lane - (position.x if axis == 0 else position.z)
+		var correction := clampf(difference * 2.8, -2.4, 2.4)
+		if axis == 0:
+			velocity.x = correction
+		else:
+			velocity.z = correction
 	move_and_slide()
 	total_driven += velocity.length() * delta
+	if drive_speed < 0.2:
+		stationary_time += delta
+	else:
+		stationary_time = 0.0
 	if not occupied and not being_stolen:
 		if axis == 0 and absf(position.z) > 121.0:
 			position.z = -signf(position.z) * 120.0
