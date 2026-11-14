@@ -6,6 +6,7 @@ signal died(actor: PocketActor)
 
 const Shapes = preload("res://scripts/shape_factory.gd")
 const Fx = preload("res://scripts/combat_fx.gd")
+const TrafficRules = preload("res://scripts/traffic_rules.gd")
 var officer: bool = false
 var health: float = 80.0
 var anchor: Vector3 = Vector3.ZERO
@@ -33,6 +34,16 @@ var attack_damage: float = 0.0
 var attack_target: Node3D
 var stalled_time: float = 0.0
 var previous_distance: float = INF
+var path_queue: Array[Vector3] = []
+var crosswalk_waiting: bool = false
+var crosswalk_active: bool = false
+var panic_time: float = 0.0
+var navigation: PocketNavGrid
+var pursuit_route := PackedVector2Array()
+var pursuit_index: int = 0
+var pursuit_refresh: float = 0.0
+var last_seen_position := Vector3.ZERO
+var lost_sight_time: float = 0.0
 
 
 func setup(is_officer: bool, initial_anchor: Vector3, seed_value: int, p_axis: int = 0) -> void:
@@ -87,47 +98,126 @@ func joint(at: Vector3, size: Vector3, tint: Color, height_offset: float) -> Nod
 
 
 func select_sidewalk_goal() -> void:
-	# Same-sidewalk motion. Inter-block movement follows marked crosswalk corridors.
-	var reference: float = target.z if sidewalk_axis == 0 else target.x
-	var block_index := clampi(floori(reference / 36.0), -3, 2)
-	if rng.randf() < 0.18:
-		var next_block := clampi(block_index + (1 if rng.randf() < 0.5 else -1), -3, 2)
-		block_index = next_block
-	segment_min = float(block_index) * 36.0 + 8.0
-	segment_max = float(block_index + 1) * 36.0 - 8.0
-	var along := rng.randf_range(segment_min, segment_max)
+	# A route has a sidewalk approach, the crossing, then a sidewalk destination.
+	# Pedestrians never randomly cut across the vehicular lane.
+	path_queue.clear()
+	var reference: float = global_position.z if sidewalk_axis == 0 else global_position.x
+	if reference == 0.0:
+		reference = anchor.z if sidewalk_axis == 0 else anchor.x
+	var index := clampi(floori(reference / 36.0), -3, 2)
+	var other := index
+	if rng.randf() < 0.22:
+		other = clampi(index + (1 if rng.randf() < 0.5 else -1), -3, 2)
+	var along := float(other) * 36.0 + rng.randf_range(9.0, 27.0)
+	var sign_dir := 1.0 if along >= reference else -1.0
+	var offset := sign_dir * 0.32
+	var lateral := (anchor.x + offset) if sidewalk_axis == 0 else (anchor.z + offset)
+	var final_goal := Vector3(lateral, anchor.y, along) if sidewalk_axis == 0 else Vector3(along, anchor.y, lateral)
+	if other != index:
+		var border := float(maxi(index, other)) * 36.0
+		var approach := border - sign_dir * 6.8
+		var landing := border + sign_dir * 6.8
+		var first := Vector3(lateral, anchor.y, approach) if sidewalk_axis == 0 else Vector3(approach, anchor.y, lateral)
+		var second := Vector3(lateral, anchor.y, landing) if sidewalk_axis == 0 else Vector3(landing, anchor.y, lateral)
+		target = first
+		path_queue.append(second)
+		path_queue.append(final_goal)
+		crosswalk_waiting = true
+	else:
+		target = final_goal
+		crosswalk_waiting = false
+	crosswalk_active = false
 	previous_distance = INF
 	stalled_time = 0.0
-	# Split opposing pedestrian flows into narrow, consistent passing lanes.
-	# Both lanes stay fully on the sidewalk and inside each zebra crossing.
-	var current_along := global_position.z if sidewalk_axis == 0 else global_position.x
-	var travel_sign := 1.0 if along >= current_along else -1.0
-	var lane_offset := travel_sign * 0.32
-	if sidewalk_axis == 0:
-		target = Vector3(anchor.x + lane_offset, anchor.y, along)
+
+
+func advance_waypoint() -> void:
+	if not path_queue.is_empty():
+		if crosswalk_waiting and not TrafficRules.pedestrians_have_green(sidewalk_axis):
+			return
+		target = path_queue.pop_front()
+		if crosswalk_waiting:
+			crosswalk_waiting = false
+			crosswalk_active = true
+		else:
+			crosswalk_active = false
+		previous_distance = INF
+		stalled_time = 0.0
+	elif officer:
+		target = anchor + Vector3(rng.randf_range(-6.0, 6.0), 0, rng.randf_range(-6.0, 6.0))
 	else:
-		target = Vector3(along, anchor.y, anchor.z + lane_offset)
+		select_sidewalk_goal()
+
+
+func flee_from(at: Vector3) -> void:
+	if officer or dead:
+		return
+	var away := global_position - at
+	panic_time = 5.0
+	var along := away.z if sidewalk_axis == 0 else away.x
+	var delta := 12.0 if along >= 0.0 else -12.0
+	var axis_value := global_position.z if sidewalk_axis == 0 else global_position.x
+	var block := floorf(axis_value / 36.0)
+	var extent := clampf(axis_value + delta, block * 36.0 + 7.5, (block + 1.0) * 36.0 - 7.5)
+	path_queue.clear()
+	crosswalk_waiting = false
+	crosswalk_active = false
+	target = Vector3(anchor.x, anchor.y, extent) if sidewalk_axis == 0 else Vector3(extent, anchor.y, anchor.z)
+	stalled_time = 0.0
+	previous_distance = INF
 
 
 func _physics_process(delta: float) -> void:
 	strike_cooldown = maxf(0.0, strike_cooldown - delta)
+	panic_time = maxf(0.0, panic_time - delta)
 	if dead:
 		velocity = Vector3.ZERO
 		return
 	if officer and engage and is_instance_valid(chase_target):
-		target = chase_target.global_position
-	elif global_position.distance_to(target) < 0.9:
-		if officer:
-			target = anchor + Vector3(rng.randf_range(-6.0, 6.0), 0, rng.randf_range(-6.0, 6.0))
+		var foe_position: Vector3 = chase_target.global_position
+		var target_distance := global_position.distance_to(foe_position)
+		var seen := target_distance < 40.0
+		if seen:
+			var ray := PhysicsRayQueryParameters3D.create(global_position + Vector3(0, 1.7, 0), foe_position + Vector3(0, 1.2, 0))
+			ray.exclude = [get_rid()]
+			ray.collision_mask = 1
+			seen = get_world_3d().direct_space_state.intersect_ray(ray).is_empty()
+		if seen:
+			last_seen_position = foe_position
+			lost_sight_time = 0.0
 		else:
-			select_sidewalk_goal()
+			lost_sight_time += delta
+			if last_seen_position == Vector3.ZERO:
+				last_seen_position = foe_position
+		if lost_sight_time < 11.0:
+			pursuit_refresh -= delta
+			if pursuit_refresh <= 0.0:
+				pursuit_refresh = 0.8
+				if navigation != null:
+					pursuit_route = navigation.path(global_position, last_seen_position)
+				pursuit_index = 0
+			while pursuit_index < pursuit_route.size():
+				var next_point := pursuit_route[pursuit_index]
+				if Vector2(global_position.x - next_point.x, global_position.z - next_point.y).length() > 1.20:
+					break
+				pursuit_index += 1
+			if pursuit_index < pursuit_route.size():
+				var waypoint := pursuit_route[pursuit_index]
+				target = Vector3(waypoint.x, foe_position.y, waypoint.y)
+			else:
+				target = last_seen_position
+		else:
+			target = anchor
+	elif Vector2(global_position.x - target.x, global_position.z - target.z).length() < 0.85:
+		advance_waypoint()
 	var direction := target - global_position
 	direction.y = 0
 	var attack_lock := attack_clock >= 0.0
-	var stop_distance := 2.1 if officer and engage else 0.72
-	var is_walking := direction.length() > stop_distance and not attack_lock
+	var stop_distance := 1.2 if officer and engage else 0.72
+	var signal_wait := not officer and crosswalk_waiting and direction.length() < 0.9 and not TrafficRules.pedestrians_have_green(sidewalk_axis)
+	var is_walking := direction.length() > stop_distance and not attack_lock and not signal_wait
 	if is_walking:
-		var speed := 5.2 if officer and engage else 2.1
+		var speed := 5.2 if officer and engage else (4.7 if panic_time > 0.0 else 2.1)
 		var unit_dir := direction.normalized()
 		velocity.x = unit_dir.x * speed
 		velocity.z = unit_dir.z * speed
@@ -152,7 +242,10 @@ func _physics_process(delta: float) -> void:
 			stalled_time = maxf(0.0, stalled_time - delta * 2.0)
 		previous_distance = remaining
 		if stalled_time > 1.8:
-			select_sidewalk_goal()
+			if crosswalk_waiting and not TrafficRules.pedestrians_have_green(sidewalk_axis):
+				stalled_time = 0.0
+			else:
+				select_sidewalk_goal()
 	else:
 		stalled_time = 0.0
 		previous_distance = INF
@@ -188,7 +281,10 @@ func _process(delta: float) -> void:
 		if not attack_contact and phase >= 0.50:
 			attack_contact = true
 			if is_instance_valid(attack_target) and global_position.distance_to(attack_target.global_position) <= 2.75:
-				if attack_target.has_method("hurt"):
+				var ray := PhysicsRayQueryParameters3D.create(global_position + Vector3(0, 1.35, 0), attack_target.global_position + Vector3(0, 1.05, 0))
+				ray.collision_mask = 1
+				ray.exclude = [get_rid()]
+				if get_world_3d().direct_space_state.intersect_ray(ray).is_empty() and attack_target.has_method("hurt"):
 					attack_target.hurt(attack_damage)
 		if phase >= 1.0:
 			attack_clock = -1.0

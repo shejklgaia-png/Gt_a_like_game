@@ -4,6 +4,9 @@ class_name PocketCity
 const Shapes = preload("res://scripts/shape_factory.gd")
 const VehicleScene = preload("res://scripts/vehicle.gd")
 const ActorScene = preload("res://scripts/actor.gd")
+const UrbanAssets = preload("res://scripts/urban_assets.gd")
+const TrafficLights = preload("res://scripts/traffic_light_visuals.gd")
+const NavigationGrid = preload("res://scripts/nav_grid.gd")
 var buildings: Array[Dictionary] = []
 var cars: Array[PocketVehicle] = []
 var people: Array[PocketActor] = []
@@ -11,6 +14,7 @@ var rng := RandomNumberGenerator.new()
 var car_root: Node3D
 var person_root: Node3D
 var police_root: Node3D
+var navigation: PocketNavGrid
 const ROAD_COLOR := Color("#293341")
 const SIDEWALK_COLOR := Color("#697480")
 
@@ -22,13 +26,14 @@ func build_city() -> void:
 		var pos := float(n) * 36.0
 		Shapes.box(self, Vector3(pos, 0.010, 0), Vector3(10.0, 0.02, 246), ROAD_COLOR)
 		Shapes.box(self, Vector3(0, 0.010, pos), Vector3(246, 0.02, 10.0), ROAD_COLOR)
-		for k in range(-12, 13):
-			Shapes.box(self, Vector3(pos, 0.056, k * 9.0), Vector3(0.13, 0.015, 3.5), Color("#aab2a0"))
-			Shapes.box(self, Vector3(k * 9.0, 0.058, pos), Vector3(3.5, 0.015, 0.13), Color("#aab2a0"))
+	add_lane_markings()
 	add_crosswalks()
 	for ix in range(-3, 3):
 		for iz in range(-3, 3):
 			create_building(ix, iz)
+	navigation = NavigationGrid.new()
+	for building in buildings:
+		navigation.building(building["position"], float(building["width"]) * 0.5, float(building["depth"]) * 0.5)
 	car_root = Node3D.new()
 	car_root.name = "Traffic"
 	add_child(car_root)
@@ -41,6 +46,33 @@ func build_city() -> void:
 	spawn_traffic()
 	spawn_civilians()
 	add_street_props()
+	UrbanAssets.install(self)
+	var lights := TrafficLights.new()
+	lights.name = "TrafficLights"
+	add_child(lights)
+
+
+func add_lane_markings() -> void:
+	var bar := BoxMesh.new()
+	bar.size = Vector3(0.13, 0.015, 3.5)
+	var batch := MultiMesh.new()
+	batch.transform_format = MultiMesh.TRANSFORM_3D
+	batch.mesh = bar
+	batch.instance_count = 7 * 25 * 2
+	var index := 0
+	for road in range(-3, 4):
+		var p := float(road) * 36.0
+		for k in range(-12, 13):
+			var along := float(k) * 9.0
+			batch.set_instance_transform(index, Transform3D(Basis.IDENTITY, Vector3(p, 0.056, along)))
+			index += 1
+			batch.set_instance_transform(index, Transform3D(Basis(Vector3.UP, PI * 0.5), Vector3(along, 0.057, p)))
+			index += 1
+	var strip := MultiMeshInstance3D.new()
+	strip.name = "LaneMarkings"
+	strip.multimesh = batch
+	strip.material_override = Shapes.material(Color("#aab2a0"))
+	add_child(strip)
 
 
 func add_crosswalks() -> void:
@@ -93,19 +125,36 @@ func create_building(ix: int, iz: int) -> void:
 	Shapes.box(self, Vector3(cx, 1.62, front_z - 0.075), Vector3(2.65, 3.25, 0.14), Color("#162534"))
 	Shapes.box(self, Vector3(cx, 2.95, front_z - 0.18), Vector3(3.0, 0.2, 0.28), Color("#00d5c2") if not shop else Color("#ffcc74"))
 	Shapes.sign3d(self, "GUN SHOP" if shop else "ENTER", Vector3(cx, 4.05, front_z - 0.6), Color("#ffdf8a") if shop else Color("#91e7df"))
+	var window_mesh := BoxMesh.new()
+	window_mesh.size = Vector3(2.7, 1.7, 0.13)
+	var transforms: Array[Transform3D] = []
 	for row in range(2, mini(int(height / 4.1), 7)):
 		for col in [-1, 0, 1]:
 			if col == 0 and row == 2:
 				continue
 			var wx: float = cx + float(col) * width * 0.27
 			var wy := 1.1 + float(row) * 3.65
-			Shapes.box(self, Vector3(wx, wy, front_z - 0.075), Vector3(2.7, 1.7, 0.13), Color("#638b98"))
+			transforms.append(Transform3D(Basis.IDENTITY, Vector3(wx, wy, front_z - 0.075)))
+	if not transforms.is_empty():
+		var window_batch := MultiMesh.new()
+		window_batch.transform_format = MultiMesh.TRANSFORM_3D
+		window_batch.mesh = window_mesh
+		window_batch.instance_count = transforms.size()
+		for win_index in range(transforms.size()):
+			window_batch.set_instance_transform(win_index, transforms[win_index])
+		var windows := MultiMeshInstance3D.new()
+		windows.name = "BuildingWindows"
+		windows.multimesh = window_batch
+		windows.material_override = Shapes.material(Color("#638b98"))
+		add_child(windows)
 	buildings.append({
 		"id": "lot_%d_%d" % [ix, iz],
 		"position": Vector3(cx, 0, cz),
 		"door": door,
 		"shop": shop,
-		"height": height
+		"height": height,
+		"width": width,
+		"depth": depth
 	})
 
 
@@ -158,6 +207,7 @@ func add_police_near(at: Vector3, seed_value: int) -> PocketActor:
 	var walk_z := clampf(at.z + rng.randf_range(-19.0, 19.0), -110.0, 110.0)
 	cop.position = Vector3(street_x + 6.35, 0.24, walk_z)
 	cop.setup(true, cop.position, seed_value)
+	cop.navigation = navigation
 	police_root.add_child(cop)
 	return cop
 
@@ -185,3 +235,23 @@ func closest_car(at: Vector3, distance_max: float = 4.5) -> PocketVehicle:
 			found = car
 			best = dist
 	return found
+
+func replenish_pedestrians() -> Array[PocketActor]:
+	var newcomers: Array[PocketActor] = []
+	for index in range(people.size()):
+		if is_instance_valid(people[index]):
+			continue
+		var axis := index % 2
+		var road := float(rng.randi_range(-3, 3)) * 36.0
+		var block := float(rng.randi_range(-3, 2)) * 36.0
+		var along := block + rng.randf_range(10.0, 25.0)
+		var person: PocketActor = ActorScene.new()
+		if axis == 0:
+			person.position = Vector3(road + 6.35, 0.13, along)
+		else:
+			person.position = Vector3(along, 0.13, road + 6.35)
+		person.setup(false, person.position, rng.randi(), axis)
+		person_root.add_child(person)
+		people[index] = person
+		newcomers.append(person)
+	return newcomers

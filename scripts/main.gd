@@ -5,14 +5,13 @@ const HeroScript = preload("res://scripts/hero.gd")
 const InteriorScript = preload("res://scripts/interior.gd")
 const Shapes = preload("res://scripts/shape_factory.gd")
 const Fx = preload("res://scripts/combat_fx.gd")
+const GameData = preload("res://scripts/gameplay_data.gd")
+const SafeSave = preload("res://scripts/safe_save.gd")
+const SoundBank = preload("res://scripts/sound_bank.gd")
+const MapScript = preload("res://scripts/minimap.gd")
+const PerfScript = preload("res://scripts/perf_overlay.gd")
 
-const WEAPONS := [
-	{"id": "Handgun", "price": 0, "damage": 25.0, "rate": 0.29, "range": 50.0, "ammo": 180},
-	{"id": "Rifle", "price": 650, "damage": 32.0, "rate": 0.14, "range": 75.0, "ammo": 150},
-	{"id": "Shotgun", "price": 450, "damage": 88.0, "rate": 0.78, "range": 24.0, "ammo": 45},
-	{"id": "Sniper", "price": 1100, "damage": 140.0, "rate": 1.20, "range": 130.0, "ammo": 35},
-	{"id": "Machine Gun", "price": 1500, "damage": 18.0, "rate": 0.075, "range": 66.0, "ammo": 350}
-]
+var WEAPONS: Array[Dictionary] = GameData.weapons()
 const SAVE_PATH := "user://pocket_district_save.json"
 
 var city: PocketCity
@@ -25,6 +24,7 @@ var indoors: bool = false
 var active_building: String = ""
 var outdoor_exit: Vector3
 var layouts: Dictionary = {}
+var looted_buildings: Array[String] = []
 var owned_weapons: Array[String] = ["Handgun"]
 var current_weapon: int = 0
 var ammunition: Dictionary = {"Handgun": 180}
@@ -49,6 +49,31 @@ var camera_mouse: bool = false
 var carjack_busy: bool = false
 var death_pending: bool = false
 var hurt_overlay: ColorRect
+var sound: PocketSoundBank
+var minimap: PocketMiniMap
+var perf_overlay: PocketPerfOverlay
+var loaded_rounds: Dictionary = {"Handgun": 15}
+var reload_clock: float = 0.0
+var reload_weapon_id: String = ""
+var fire_latched: bool = false
+var last_footstep: float = 0.0
+var hud_update_clock: float = 0.0
+var wanted_cleanup_clock: float = 0.0
+var mission_limit: float = 0.0
+var mission_reward: int = 0
+var mission_failures: int = 0
+var total_earnings: int = 0
+var mission_last_index: int = 0
+var zoom_enabled: bool = false
+var pause_button: Button
+var reload_button: Button
+var aim_button: Button
+var settings_panel: Panel
+var display_message: String = ""
+var display_message_time: float = 0.0
+var camera_override_timer: float = 0.0
+var crosshair_label: Label
+var engine_audio: AudioStreamPlayer3D
 
 var ui: Control
 var status_label: Label
@@ -71,6 +96,9 @@ var mouse_stick: bool = false
 
 
 func _ready() -> void:
+	sound = SoundBank.new()
+	sound.name = "SoundBank"
+	add_child(sound)
 	setup_lighting()
 	city = CityScript.new()
 	city.name = "OutdoorWorld"
@@ -99,6 +127,7 @@ func _ready() -> void:
 	hero.equip_weapon(String(selected_gun()["id"]))
 	setup_ui()
 	make_mission_marker()
+	sound.play_ui("ui")
 	get_viewport().size_changed.connect(layout_ui)
 	layout_ui()
 
@@ -128,14 +157,25 @@ func connect_actor(actor: PocketActor) -> void:
 
 func _physics_process(delta: float) -> void:
 	shoot_clock = maxf(0.0, shoot_clock - delta)
-	if fire_held or Input.is_key_pressed(KEY_SPACE):
+	reload_clock = maxf(0.0, reload_clock - delta)
+	if reload_weapon_id != "" and reload_clock <= 0.0:
+		finish_reload()
+	var pressed := fire_held or Input.is_key_pressed(KEY_SPACE)
+	var gun := selected_gun()
+	if pressed and (bool(gun["auto"]) or not fire_latched):
 		shoot()
+	fire_latched = pressed
 	if shop_panel != null and shop_panel.visible:
 		return
 	var motion := read_motion()
 	if not carjack_busy and not hero.dead:
 		if indoors or car_driven == null:
 			hero.walk(motion, sprint_enabled or Input.is_key_pressed(KEY_SHIFT), camera, delta)
+			if motion.length() > 0.15:
+				last_footstep += delta
+				if last_footstep > (0.30 if sprint_enabled else 0.43):
+					last_footstep = 0.0
+					sound.play("footstep", hero.global_position, -17.0, randf_range(0.9, 1.1))
 		else:
 			car_driven.drive_input = motion
 			car_driven.nitro = sprint_enabled or Input.is_key_pressed(KEY_SHIFT)
@@ -148,15 +188,24 @@ func _physics_process(delta: float) -> void:
 			officer.engage = true
 			officer.chase_target = car_driven if car_driven != null else hero
 			var focus := car_driven.global_position if car_driven != null else hero.global_position
-			if officer.global_position.distance_to(focus) < 2.9:
+			if car_driven == null and officer.global_position.distance_to(focus) < 2.9:
 				officer.try_baton_attack(hero, 7.0 + float(wanted))
 			elif officer.global_position.distance_to(focus) > 95.0:
 				officer.queue_free()
+	camera_override_timer = maxf(0.0, camera_override_timer - delta)
+	if is_instance_valid(car_driven) and camera_override_timer <= 0.0:
+		camera_yaw = lerp_angle(camera_yaw, car_driven.rotation.y, clampf(delta * 2.1, 0.0, 1.0))
 	update_camera(delta)
 
+
 func _process(delta: float) -> void:
+	if hero == null:
+		return
+	if is_instance_valid(engine_audio) and is_instance_valid(car_driven):
+		engine_audio.pitch_scale = clampf(0.72 + absf(car_driven.drive_speed) / 20.0, 0.7, 2.4)
+		engine_audio.volume_db = -28.0 + minf(10.0, absf(car_driven.drive_speed) * 0.3)
 	autosave_clock += delta
-	if autosave_clock > 20.0:
+	if autosave_clock > 18.0:
 		autosave_clock = 0.0
 		save_game()
 	if wanted > 0 and not indoors:
@@ -169,12 +218,35 @@ func _process(delta: float) -> void:
 				var at := car_driven.global_position if car_driven != null else hero.global_position
 				var officer := city.add_police_near(at, randi())
 				connect_actor(officer)
+				sound.play("police", officer.global_position, -12.0)
 		if wanted_idle > 32.0:
 			wanted -= 1
 			wanted_idle = 0.0
+			if wanted == 0:
+				wanted_cleanup_clock = 0.0
+	elif wanted == 0:
+		wanted_cleanup_clock += delta
+		if wanted_cleanup_clock > 2.0:
+			wanted_cleanup_clock = 0.0
+			for cop in city.police_root.get_children():
+				if is_instance_valid(cop):
+					cop.queue_free()
+	if mission_stage == 1 and mission_limit > 0.0 and not hero.dead:
+		mission_limit -= delta
+		if mission_limit <= 0.0:
+			mission_stage = 0
+			mission_failures += 1
+			mission_limit = 0.0
+			mission_point = GameData.delivery_sites()[7]
+			show_message("DELIVERY FAILED")
+			refresh_mission_marker()
+			save_game()
+	display_message_time = maxf(0.0, display_message_time - delta)
 	animate_marker(delta)
-	update_hud()
-
+	hud_update_clock += delta
+	if hud_update_clock > 0.11:
+		hud_update_clock = 0.0
+		update_hud()
 
 func read_motion() -> Vector2:
 	var vector := stick_value
@@ -199,41 +271,55 @@ func update_camera(delta: float) -> void:
 	var elevation := 0.95 if car_driven == null else 1.55
 	var look_at_position := focus + Vector3(0.0, elevation, 0.0)
 	var arm_distance := camera_distance * (1.17 if car_driven != null else 1.0)
+	if zoom_enabled:
+		arm_distance *= 0.72
 	var horizontal := cos(camera_pitch) * arm_distance
 	var offset := Vector3(sin(camera_yaw) * horizontal, sin(camera_pitch) * arm_distance, cos(camera_yaw) * horizontal)
 	var requested := look_at_position + offset
-	var params := PhysicsRayQueryParameters3D.create(look_at_position, requested)
-	params.exclude = [hero.get_rid()]
-	if is_instance_valid(car_driven):
-		params.exclude.append(car_driven.get_rid())
-	var obstruction := get_world_3d().direct_space_state.intersect_ray(params)
-	var obstructed := not obstruction.is_empty()
-	var destination := requested
-	if obstructed:
-		var point: Vector3 = obstruction["position"]
-		var direction := (requested - look_at_position).normalized()
-		destination = point - direction * 0.48
-		if destination.distance_to(look_at_position) < 1.25:
-			destination = look_at_position + direction * 1.25
-	var smooth := 14.0 if obstructed else (9.0 if indoors else 7.5)
+	var dir := (requested - look_at_position).normalized()
+	var right := Vector3(dir.z, 0, -dir.x).normalized()
+	if right.length_squared() < 0.1:
+		right = Vector3.RIGHT
+	var up := right.cross(dir).normalized()
+	# Multiple ray probes approximate a sphere and protect the near plane from walls.
+	var probes: Array[Vector3] = [Vector3.ZERO, right * 0.42, -right * 0.42, up * 0.36, -up * 0.36]
+	var best_length := arm_distance
+	var obstructed := false
+	for probe in probes:
+		var params := PhysicsRayQueryParameters3D.create(look_at_position + probe, requested + probe)
+		params.collision_mask = 1
+		params.exclude = [hero.get_rid()]
+		if is_instance_valid(car_driven):
+			params.exclude.append(car_driven.get_rid())
+		var block := get_world_3d().direct_space_state.intersect_ray(params)
+		if not block.is_empty():
+			var impact: Vector3 = block["position"]
+			var allowed := maxf(1.28, impact.distance_to(look_at_position + probe) - 0.50)
+			if allowed < best_length:
+				best_length = allowed
+				obstructed = true
+	var destination := look_at_position + dir * best_length
+	var smooth := 18.0 if obstructed else (9.0 if indoors else 7.5)
 	camera.global_position = camera.global_position.lerp(destination, clampf(delta * smooth, 0.0, 1.0))
 	camera.look_at(look_at_position, Vector3.UP)
 
 
 func rotate_camera(relative: Vector2) -> void:
+	camera_override_timer = 3.0
 	camera_yaw = wrapf(camera_yaw - relative.x * 0.008, -PI, PI)
 	camera_pitch = clampf(camera_pitch + relative.y * 0.0055, deg_to_rad(42.0), deg_to_rad(78.0))
 
 
 func shoot() -> void:
-	if hero.dead or carjack_busy or shoot_clock > 0.0 or (shop_panel != null and shop_panel.visible):
+	if hero.dead or carjack_busy or shoot_clock > 0.0 or reload_weapon_id != "" or (shop_panel != null and shop_panel.visible):
 		return
 	var gun := selected_gun()
 	var gun_id: String = gun["id"]
-	if int(ammunition.get(gun_id, 0)) <= 0:
+	if int(loaded_rounds.get(gun_id, 0)) <= 0:
+		reload_gun()
 		return
 	shoot_clock = float(gun["rate"])
-	ammunition[gun_id] = int(ammunition.get(gun_id, 0)) - 1
+	loaded_rounds[gun_id] = int(loaded_rounds.get(gun_id, 0)) - 1
 	var forward := -camera.global_transform.basis.z
 	forward.y = 0.0
 	forward = forward.normalized()
@@ -248,42 +334,37 @@ func shoot() -> void:
 		origin = hero.muzzle.global_position
 	var aim := forward
 	var best_rank := INF
-	var cone_angle := deg_to_rad(4.0 if gun_id == "Sniper" else 12.0)
+	var cone_angle := deg_to_rad(2.0 if gun_id == "Sniper" else 10.0)
+	var excludes: Array[RID] = [hero.get_rid()]
+	if is_instance_valid(car_driven):
+		excludes.append(car_driven.get_rid())
 	var actors: Array[Node] = city.person_root.get_children() + city.police_root.get_children() if not indoors else []
 	for item in actors:
 		var candidate := item as PocketActor
 		if not is_instance_valid(candidate) or candidate.dead:
 			continue
-		var toward := candidate.global_position + Vector3(0, 1.05, 0) - origin
+		var toward := candidate.global_position + Vector3(0, 1.10, 0) - origin
 		var dist := toward.length()
-		if dist > float(gun["range"]) or dist < 0.5:
+		if dist < 0.5 or dist > float(gun["range"]):
 			continue
 		var alignment := forward.dot(toward.normalized())
 		if alignment <= cos(cone_angle):
+			continue
+		var los := PhysicsRayQueryParameters3D.create(origin, candidate.global_position + Vector3(0, 1.0, 0))
+		los.exclude = excludes
+		var first := get_world_3d().direct_space_state.intersect_ray(los)
+		if first.is_empty() or first.get("collider") != candidate:
 			continue
 		var rank := dist * (1.0 + (1.0 - alignment) * 10.0)
 		if rank < best_rank:
 			best_rank = rank
 			aim = toward.normalized()
-	var pellet_count := 8 if gun_id == "Shotgun" else 1
-	var angular_spread := 2.0
-	match gun_id:
-		"Handgun":
-			angular_spread = 1.9
-		"Rifle":
-			angular_spread = 1.0
-		"Shotgun":
-			angular_spread = 7.0
-		"Sniper":
-			angular_spread = 0.18
-		"Machine Gun":
-			angular_spread = 3.1
+	var pellet_count: int = int(gun["pellets"])
+	var angular_spread: float = float(gun["spread"])
 	var total_hits: Dictionary = {}
-	var hit_positions: Dictionary = {}
-	var excludes: Array[RID] = [hero.get_rid()]
-	if is_instance_valid(car_driven):
-		excludes.append(car_driven.get_rid())
-	Fx.flash(self, origin, 1.6 if gun_id == "Shotgun" else 1.0, aim)
+	var victim_distance: Dictionary = {}
+	Fx.flash(self, origin, 1.65 if gun_id == "Shotgun" else 1.0, aim)
+	sound.play(gun_id, origin, -4.0)
 	for pellet in range(pellet_count):
 		var rad := deg_to_rad(angular_spread)
 		var r := sqrt(randf()) * rad
@@ -296,26 +377,70 @@ func shoot() -> void:
 		var to := origin + spread_dir * float(gun["range"])
 		var ray := PhysicsRayQueryParameters3D.create(origin, to)
 		ray.exclude = excludes
+		ray.collision_mask = 11 # World, people and vehicles.
 		var collision := get_world_3d().direct_space_state.intersect_ray(ray)
 		var endpoint := to
 		if not collision.is_empty():
 			endpoint = collision["position"]
 			var collider: Object = collision["collider"]
 			if collider is PocketActor and not (collider as PocketActor).dead:
-				total_hits[collider] = float(total_hits.get(collider, 0.0)) + float(gun["damage"]) / float(pellet_count)
-				hit_positions[collider] = endpoint
+				var actor := collider as PocketActor
+				var part_bonus := 1.65 if endpoint.y > actor.global_position.y + 1.5 else (0.75 if endpoint.y < actor.global_position.y + 0.65 else 1.0)
+				total_hits[actor] = float(total_hits.get(actor, 0.0)) + float(gun["damage"]) / float(pellet_count) * part_bonus
+				victim_distance[actor] = origin.distance_to(endpoint)
+			elif collider is PocketVehicle:
+				(collider as PocketVehicle).hit(float(gun["damage"]) / float(pellet_count))
+				Fx.impact(self, endpoint, Color("#ffd9a2"))
 			elif pellet < 3:
 				Fx.impact(self, endpoint, Color("#f9c884"))
 		if pellet_count == 1 or pellet % 2 == 0:
 			Fx.tracer(self, origin, endpoint, 0.022 if gun_id == "Sniper" else 0.034, Color("#ffd16b"), 0.10 if gun_id == "Sniper" else 0.065)
 	for actor in total_hits:
 		if is_instance_valid(actor):
-			(actor as PocketActor).hit(float(total_hits[actor]))
-	if wanted == 0 and not indoors:
-		add_wanted(1)
+			var length: float = float(victim_distance.get(actor, 0.0))
+			var falloff := clampf(1.0 - maxf(0.0, length / float(gun["range"]) - 0.65) * 0.8, 0.72, 1.0)
+			(actor as PocketActor).hit(float(total_hits[actor]) * falloff)
+	for item in actors:
+		var civilian := item as PocketActor
+		if is_instance_valid(civilian) and not civilian.dead and not civilian.officer and civilian.global_position.distance_to(origin) < 20.0:
+			civilian.flee_from(origin)
+	if not indoors:
+		if wanted == 0:
+			add_wanted(1)
+		else:
+			wanted_idle = 0.0
 
+
+func reload_gun() -> void:
+	if reload_weapon_id != "" or hero.dead or carjack_busy:
+		return
+	var gun := selected_gun()
+	var id: String = gun["id"]
+	var count := int(loaded_rounds.get(id, 0))
+	var capacity := int(gun["magazine"])
+	if count >= capacity or int(ammunition.get(id, 0)) <= 0:
+		return
+	reload_weapon_id = id
+	reload_clock = float(gun["reload"])
+	sound.play_ui("ui")
+	show_message("RELOADING " + id.to_upper())
+
+
+func finish_reload() -> void:
+	for gun in WEAPONS:
+		if String(gun["id"]) != reload_weapon_id:
+			continue
+		var id: String = gun["id"]
+		var available := maxi(0, int(ammunition.get(id, 0)))
+		var needed := maxi(0, int(gun["magazine"]) - int(loaded_rounds.get(id, 0)))
+		var amount := mini(available, needed)
+		ammunition[id] = available - amount
+		loaded_rounds[id] = int(loaded_rounds.get(id, 0)) + amount
+		break
+	reload_weapon_id = ""
 
 func on_hero_damaged(points: float) -> void:
+	sound.play("hurt", hero.global_position, -8.0)
 	Fx.impact(self, hero.global_position + Vector3(0.0, 1.45, 0.0), Color("#ff7371"), points)
 	if is_instance_valid(hurt_overlay):
 		hurt_overlay.color = Color(0.83, 0.09, 0.08, 0.27)
@@ -329,6 +454,7 @@ func on_hero_died() -> void:
 	death_pending = true
 	if is_instance_valid(car_driven):
 		exit_car()
+	sound.play("death", hero.global_position, -2.0)
 	get_tree().create_timer(2.5).timeout.connect(func() -> void:
 		if is_inside_tree():
 			busted()
@@ -341,8 +467,17 @@ func on_actor_injured(actor: PocketActor) -> void:
 		add_wanted(2 if actor.officer else 1)
 
 
-func on_actor_died(_actor: PocketActor) -> void:
-	pass
+func on_actor_died(actor: PocketActor) -> void:
+	if actor.officer:
+		add_wanted(1)
+		sound.play("death", actor.global_position, -8.0)
+		return
+	sound.play("death", actor.global_position, -10.0)
+	get_tree().create_timer(8.0).timeout.connect(func() -> void:
+		if is_instance_valid(city) and is_inside_tree():
+			for newcomer in city.replenish_pedestrians():
+				connect_actor(newcomer)
+	)
 
 
 func add_wanted(levels: int) -> void:
@@ -354,7 +489,19 @@ func busted() -> void:
 	if indoors:
 		leave_interior()
 	if car_driven != null:
+		var car := car_driven
 		exit_car()
+		if car_driven != null:
+			car.occupied = false
+			if is_instance_valid(engine_audio):
+				engine_audio.stop()
+				engine_audio.queue_free()
+				engine_audio = null
+			car.drive_input = Vector2.ZERO
+			car.nitro = false
+			car_driven = null
+			hero.visible = true
+			(hero.get_node("CollisionShape3D") as CollisionShape3D).set_deferred("disabled", false)
 	hero.position = Vector3(18.0, 0.35, -34.0)
 	hero.reset_health()
 	cash = maxi(0, cash - 200)
@@ -372,9 +519,13 @@ func selected_gun() -> Dictionary:
 
 
 func next_weapon() -> void:
+	if reload_weapon_id != "":
+		return
 	current_weapon = (current_weapon + 1) % owned_weapons.size()
-	shoot_clock = 0.0
 	hero.equip_weapon(String(selected_gun()["id"]))
+	zoom_enabled = false
+	camera.fov = 69.0
+	sound.play_ui("ui")
 
 
 func interaction() -> void:
@@ -384,7 +535,17 @@ func interaction() -> void:
 		close_shop()
 		return
 	if indoors:
-		if interior.exit_near(hero.global_position):
+		if interior.loot_near(hero.global_position):
+			var reward := interior.search_loot(hero.global_position)
+			if reward > 0:
+				cash += reward
+				total_earnings += reward
+				if not looted_buildings.has(active_building):
+					looted_buildings.append(active_building)
+				sound.play_ui("cash")
+				show_message("FOUND SUPPLIES +$%d" % reward)
+				save_game()
+		elif interior.exit_near(hero.global_position):
 			leave_interior()
 		return
 	if car_driven != null:
@@ -411,6 +572,7 @@ func enter_car(car: PocketVehicle) -> void:
 	carjack_busy = true
 	car.being_stolen = true
 	car.open_driver_door(true)
+	sound.play("car_door", car.global_position)
 	hero.start_carjack()
 	var destination := car.entrance_point()
 	hero.face_direction(-car.global_transform.basis.x, 1.0)
@@ -424,7 +586,15 @@ func enter_car(car: PocketVehicle) -> void:
 		car_driven = car
 		car.occupied = true
 		car.being_stolen = false
+		engine_audio = AudioStreamPlayer3D.new()
+		engine_audio.stream = sound.sounds["engine"]
+		engine_audio.unit_size = 19.0
+		engine_audio.max_distance = 90.0
+		engine_audio.volume_db = -26.0
+		car.add_child(engine_audio)
+		engine_audio.play()
 		car.open_driver_door(false)
+		sound.play("car_door", car.global_position)
 		hero.stop_carjack()
 		hero.visible = false
 		var collider := hero.get_node("CollisionShape3D") as CollisionShape3D
@@ -436,14 +606,46 @@ func enter_car(car: PocketVehicle) -> void:
 func exit_car() -> void:
 	if car_driven == null:
 		return
-	var leave_at := car_driven.global_position + car_driven.global_transform.basis.x * 3.1
-	hero.global_position = Vector3(leave_at.x, 0.45, leave_at.z)
+	var vehicle := car_driven
+	var options: Array[Vector3] = [
+		vehicle.global_position + vehicle.global_transform.basis.x * 3.1,
+		vehicle.global_position - vehicle.global_transform.basis.x * 3.1,
+		vehicle.global_position + vehicle.global_transform.basis.z * 4.2,
+		vehicle.global_position - vehicle.global_transform.basis.z * 4.2
+	]
+	for spoke in range(8):
+		var angle := TAU * float(spoke) / 8.0
+		options.append(vehicle.global_position + Vector3(cos(angle), 0, sin(angle)) * 5.2)
+	var leave_at := Vector3.ZERO
+	var valid := false
+	for option in options:
+		var sphere := SphereShape3D.new()
+		sphere.radius = 0.62
+		var query := PhysicsShapeQueryParameters3D.new()
+		query.shape = sphere
+		query.transform = Transform3D(Basis.IDENTITY, Vector3(option.x, 0.91, option.z))
+		query.collision_mask = 9 # Static obstacles and other vehicles.
+		query.exclude = [vehicle.get_rid()]
+		var hit := get_world_3d().direct_space_state.intersect_shape(query, 1)
+		if hit.is_empty():
+			leave_at = option
+			valid = true
+			break
+	if not valid:
+		show_message("NO CLEAR PLACE TO EXIT")
+		return
+	hero.global_position = Vector3(leave_at.x, 0.24, leave_at.z)
 	hero.visible = true
 	var body := hero.get_node("CollisionShape3D") as CollisionShape3D
 	body.set_deferred("disabled", false)
-	car_driven.occupied = false
-	car_driven.drive_input = Vector2.ZERO
-	car_driven.nitro = false
+	sound.play("car_door", vehicle.global_position, -8.0)
+	vehicle.occupied = false
+	if is_instance_valid(engine_audio):
+		engine_audio.stop()
+		engine_audio.queue_free()
+		engine_audio = null
+	vehicle.drive_input = Vector2.ZERO
+	vehicle.nitro = false
 	car_driven = null
 
 
@@ -455,8 +657,9 @@ func enter_interior(door: Dictionary) -> void:
 	if not layouts.has(active_building):
 		layouts[active_building] = InteriorScript.make_layout(active_building)
 		save_game()
-	interior.display_layout(active_building, layouts[active_building])
+	interior.display_layout(active_building, layouts[active_building], looted_buildings.has(active_building))
 	indoors = true
+	sound.set_indoors(true)
 	city.visible = false
 	city.process_mode = Node.PROCESS_MODE_DISABLED
 	interior.visible = true
@@ -468,6 +671,7 @@ func enter_interior(door: Dictionary) -> void:
 
 func leave_interior() -> void:
 	indoors = false
+	sound.set_indoors(false)
 	interior.visible = false
 	city.visible = true
 	city.process_mode = Node.PROCESS_MODE_INHERIT
@@ -484,11 +688,11 @@ func make_mission_marker() -> void:
 	Shapes.ball(mission_marker, Vector3(0, 1.2, 0), 0.65, Color("#ffc44e"))
 	mission_marker_label = Shapes.sign3d(mission_marker, "PICKUP", Vector3(0, 2.7, 0), Color("#ffdf9c"))
 	if mission_stage == 0:
-		mission_point = Vector3(0, 0.2, 0)
+		mission_point = GameData.delivery_sites()[7]
 	else:
-		mission_point = Vector3(72, 0.2, 72)
+		var sites := GameData.delivery_sites()
+		mission_point = sites[clampi(mission_last_index, 0, sites.size() - 1)]
 	refresh_mission_marker()
-
 
 func animate_marker(delta: float) -> void:
 	if mission_marker != null:
@@ -503,59 +707,94 @@ func refresh_mission_marker() -> void:
 func advance_delivery() -> void:
 	if mission_stage == 0:
 		mission_stage = 1
-		var destinations := [
-			Vector3(72.0, 0.2, 72.0),
-			Vector3(-72.0, 0.2, 36.0),
-			Vector3(36.0, 0.2, -72.0),
-			Vector3(-36.0, 0.2, -36.0)
-		]
-		mission_point = destinations[deliveries % destinations.size()]
+		var sites := GameData.delivery_sites()
+		mission_last_index = (deliveries * 3 + 1) % sites.size()
+		mission_point = sites[mission_last_index]
+		var starting := car_driven.global_position if car_driven != null else hero.global_position
+		var distance := starting.distance_to(mission_point)
+		mission_limit = GameData.mission_time(distance)
+		mission_reward = GameData.mission_reward(distance, mini(5, int(deliveries / 3)))
+		show_message("DELIVERY STARTED  |  $%d REWARD" % mission_reward)
 	else:
 		mission_stage = 0
 		deliveries += 1
-		cash += 360
-		mission_point = Vector3(0, 0.2, 0)
+		cash += mission_reward
+		total_earnings += mission_reward
+		sound.play_ui("cash")
+		show_message("DELIVERED +$%d" % mission_reward)
+		mission_limit = 0.0
+		mission_point = GameData.delivery_sites()[7]
 		save_game()
 	refresh_mission_marker()
+	save_game()
 
+
+func show_message(message: String) -> void:
+	display_message = message
+	display_message_time = 2.6
 
 func load_game() -> void:
-	if not FileAccess.file_exists(SAVE_PATH):
-		return
-	var file := FileAccess.open(SAVE_PATH, FileAccess.READ)
-	if file == null:
-		return
-	var decoded: Variant = JSON.parse_string(file.get_as_text())
-	if not decoded is Dictionary:
+	var decoded: Dictionary = SafeSave.load_json(SAVE_PATH)
+	if decoded.is_empty():
 		return
 	cash = maxi(0, int(decoded.get("cash", cash)))
 	deliveries = maxi(0, int(decoded.get("deliveries", 0)))
+	total_earnings = maxi(0, int(decoded.get("earnings", 0)))
+	mission_failures = maxi(0, int(decoded.get("failures", 0)))
+	mission_stage = clampi(int(decoded.get("mission_stage", 0)), 0, 1)
+	mission_last_index = clampi(int(decoded.get("mission_index", 0)), 0, GameData.delivery_sites().size() - 1)
+	mission_limit = maxf(0.0, float(decoded.get("mission_limit", 0.0)))
+	mission_reward = maxi(0, int(decoded.get("mission_reward", 0)))
 	layouts = decoded.get("interiors", {})
+	looted_buildings.clear()
+	for location in decoded.get("looted", []):
+		looted_buildings.append(String(location))
 	owned_weapons.clear()
 	for item in decoded.get("owned", ["Handgun"]):
 		var name := String(item)
-		if WEAPONS.any(func(g: Dictionary) -> bool: return g["id"] == name):
+		if WEAPONS.any(func(g: Dictionary) -> bool: return g["id"] == name) and not owned_weapons.has(name):
 			owned_weapons.append(name)
-	if owned_weapons.is_empty():
-		owned_weapons.append("Handgun")
-	ammunition = decoded.get("ammo", {"Handgun": 180})
+	if not owned_weapons.has("Handgun"):
+		owned_weapons.push_front("Handgun")
+	var saved_ammo = decoded.get("ammo", {"Handgun": 180})
+	if saved_ammo is Dictionary:
+		ammunition = saved_ammo
+	var saved_mags = decoded.get("loaded", {"Handgun": 15})
+	if saved_mags is Dictionary:
+		loaded_rounds = saved_mags
 	current_weapon = clampi(int(decoded.get("equipped", 0)), 0, owned_weapons.size() - 1)
+	var coords = decoded.get("player_position", [])
+	if coords is Array and coords.size() == 3:
+		var p := Vector3(float(coords[0]), float(coords[1]), float(coords[2]))
+		if absf(p.x) < 120 and absf(p.z) < 120 and p.y > -2.0 and p.y < 10.0:
+			hero.position = p
 
 
 func save_game() -> void:
-	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
-	if file == null:
-		return
+	var pos := hero.global_position
+	if is_instance_valid(car_driven):
+		pos = car_driven.global_position + Vector3(2.5, 0, 0)
+	if indoors:
+		pos = outdoor_exit
 	var state := {
 		"cash": cash,
 		"deliveries": deliveries,
+		"earnings": total_earnings,
+		"failures": mission_failures,
+		"mission_stage": mission_stage,
+		"mission_index": mission_last_index,
+		"mission_limit": mission_limit,
+		"mission_reward": mission_reward,
 		"interiors": layouts,
+		"looted": looted_buildings,
 		"owned": owned_weapons,
 		"ammo": ammunition,
-		"equipped": current_weapon
+		"loaded": loaded_rounds,
+		"equipped": current_weapon,
+		"player_position": [pos.x, pos.y, pos.z]
 	}
-	file.store_string(JSON.stringify(state, "\t"))
-
+	if not SafeSave.save_json(SAVE_PATH, state):
+		push_warning("Save could not be written; last good backup was kept.")
 
 func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
@@ -564,13 +803,19 @@ func _input(event: InputEvent) -> void:
 		elif event.keycode == KEY_Q or event.keycode == KEY_TAB:
 			next_weapon()
 		elif event.keycode == KEY_R:
+			reload_gun()
+		elif event.keycode == KEY_C:
 			sprint_enabled = not sprint_enabled
+		elif event.keycode == KEY_M and minimap != null:
+			minimap.visible = not minimap.visible
+		elif event.keycode == KEY_P:
+			toggle_settings()
 	if event is InputEventScreenTouch:
 		if event.pressed and not on_action_button(event.position) and not shop_panel.visible:
 			if stick_pointer == -1 and (event.position - stick_center).length() < 145.0:
 				stick_pointer = event.index
 				update_stick(event.position)
-			elif camera_touch == -1 and event.position.y < ui.size.y - 490.0:
+			elif camera_touch == -1 and event.position.y < stick_outer.position.y - 12.0:
 				camera_touch = event.index
 		elif not event.pressed:
 			if event.index == stick_pointer:
@@ -601,7 +846,7 @@ func _input(event: InputEvent) -> void:
 
 
 func on_action_button(point: Vector2) -> bool:
-	for button in [fire_button, action_button, run_button, weapon_button]:
+	for button in [fire_button, action_button, run_button, weapon_button, reload_button, aim_button, pause_button]:
 		if button != null and button.get_global_rect().has_point(point):
 			return true
 	return false
@@ -618,18 +863,36 @@ func update_hud() -> void:
 		return
 	status_label.text = "HP %03d    $%d    %s" % [ceili(hero.hp), cash, "★".repeat(wanted) + "☆".repeat(5 - wanted)]
 	var gun := selected_gun()
-	weapon_label.text = "%s   %d ROUNDS" % [gun["id"], int(ammunition.get(gun["id"], 0))]
+	var gun_id: String = gun["id"]
+	var active_mag := int(loaded_rounds.get(gun_id, 0))
+	var reserve := int(ammunition.get(gun_id, 0))
+	var suffix := ("  RELOADING %.1fs" % reload_clock) if reload_weapon_id != "" else ""
+	weapon_label.text = "%s  %d/%d  (+%d)%s" % [gun_id, active_mag, int(gun["magazine"]), reserve, suffix]
 	var current_position := car_driven.global_position if car_driven != null else hero.global_position
 	var waypoint := mission_point - current_position
 	var heading := waypoint_arrow(waypoint)
-	mission_label.text = "DELIVERY %s %dm  •  %s  [%d]" % [heading, int(waypoint.length()), "PICKUP" if mission_stage == 0 else "DROP OFF", deliveries]
+	mission_label.text = "DELIVERY %s %dm  •  %s [%d] %s" % [heading, int(waypoint.length()), "PICKUP" if mission_stage == 0 else "DROP OFF", deliveries, ("%.0fs" % mission_limit) if mission_stage == 1 else ""]
+	var aim_dir := -camera.global_transform.basis.z
+	aim_dir.y = 0.0
+	aim_dir = aim_dir.normalized()
+	var origin := car_driven.global_position if is_instance_valid(car_driven) else hero.global_position
+	var target_world := origin + aim_dir * 10.0 + Vector3(0, 1.2, 0)
+	if camera.is_position_behind(target_world):
+		crosshair_label.visible = false
+	else:
+		crosshair_label.visible = true
+		crosshair_label.position = camera.unproject_position(target_world) - Vector2(17, 20)
+		crosshair_label.size = Vector2(34, 36)
 	var caption := "MOVE: PAD  •  CAMERA: SWIPE SCENE  •  ACTION"
 	if hero.dead:
 		caption = "WASTED  •  RESPAWNING"
 	elif carjack_busy:
 		caption = "TAKING VEHICLE..."
 	elif indoors:
-		caption = "ACTION: EXIT" if interior.exit_near(hero.global_position) else "RETURN TO THE EXIT MARKER"
+		if interior.loot_near(hero.global_position):
+			caption = "ACTION: SEARCH CACHE"
+		else:
+			caption = "ACTION: EXIT" if interior.exit_near(hero.global_position) else "RETURN TO THE EXIT MARKER"
 	elif car_driven != null:
 		caption = "ACTION: EXIT CAR  •  STICK TO DRIVE"
 	elif not city.closest_door(hero.global_position).is_empty():
@@ -639,7 +902,7 @@ func update_hud() -> void:
 		caption = "ACTION: TAKE VEHICLE"
 	elif hero.global_position.distance_to(mission_point) < 5.2:
 		caption = "ACTION: COLLECT PARCEL" if mission_stage == 0 else "ACTION: DELIVER PARCEL"
-	hint_label.text = caption
+	hint_label.text = display_message if display_message_time > 0.0 else caption
 	run_button.text = "SPRINT ON" if sprint_enabled else "SPRINT"
 
 
@@ -655,6 +918,7 @@ func setup_ui() -> void:
 	add_child(layer)
 	ui = Control.new()
 	ui.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ui.process_mode = Node.PROCESS_MODE_ALWAYS
 	layer.add_child(ui)
 	hurt_overlay = ColorRect.new()
 	hurt_overlay.color = Color(0.8, 0.12, 0.10, 0.0)
@@ -670,6 +934,10 @@ func setup_ui() -> void:
 	ui.add_child(mission_label)
 	weapon_label = make_label(20, Color("#d6edee"))
 	ui.add_child(weapon_label)
+	crosshair_label = make_label(32, Color("#d6fff1"))
+	crosshair_label.text = "+"
+	crosshair_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	ui.add_child(crosshair_label)
 	hint_label = make_label(17, Color("#f3e5c4"))
 	hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	ui.add_child(hint_label)
@@ -691,14 +959,26 @@ func setup_ui() -> void:
 	action_button = make_button("ACTION", Color("#407d89"))
 	run_button = make_button("SPRINT", Color("#435e86"))
 	weapon_button = make_button("WEAPON", Color("#615a8d"))
+	reload_button = make_button("RELOAD", Color("#4e696e"))
+	aim_button = make_button("SCOPE", Color("#52636f"))
+	pause_button = make_button("II", Color("#3c5365"))
 	fire_button.button_down.connect(func() -> void: fire_held = true)
 	fire_button.button_up.connect(func() -> void: fire_held = false)
 	action_button.pressed.connect(interaction)
 	run_button.pressed.connect(func() -> void: sprint_enabled = not sprint_enabled)
 	weapon_button.pressed.connect(next_weapon)
-	for button in [fire_button, action_button, run_button, weapon_button]:
+	reload_button.pressed.connect(reload_gun)
+	aim_button.pressed.connect(toggle_scope)
+	pause_button.pressed.connect(toggle_settings)
+	for button in [fire_button, action_button, run_button, weapon_button, reload_button, aim_button, pause_button]:
 		ui.add_child(button)
+	minimap = MapScript.new()
+	minimap.game = self
+	ui.add_child(minimap)
+	perf_overlay = PerfScript.new()
+	ui.add_child(perf_overlay)
 	create_shop_ui()
+	create_settings_ui()
 
 
 func style(background: Color, radius: int) -> StyleBoxFlat:
@@ -748,8 +1028,6 @@ func create_shop_ui() -> void:
 	tip.text = "SELECT A WEAPON TO PURCHASE OR RESTOCK"
 	content.add_child(tip)
 	for gun in WEAPONS:
-		if gun["id"] == "Handgun":
-			continue
 		var gun_name: String = gun["id"]
 		var button := make_button("", Color("#3c5365"))
 		button.custom_minimum_size = Vector2(0, 66)
@@ -800,11 +1078,79 @@ func purchase_gun(gun_name: String) -> void:
 		if not already_owned:
 			owned_weapons.append(gun_name)
 			current_weapon = owned_weapons.size() - 1
+			loaded_rounds[gun_name] = int(gun["magazine"])
 			hero.equip_weapon(gun_name)
+		sound.play_ui("cash")
 		ammunition[gun_name] = int(ammunition.get(gun_name, 0)) + int(gun["ammo"])
 		save_game()
 		refresh_shop_ui()
 		return
+
+
+func toggle_scope() -> void:
+	if String(selected_gun()["id"]) != "Sniper":
+		return
+	zoom_enabled = not zoom_enabled
+	camera.fov = 27.0 if zoom_enabled else 69.0
+	aim_button.text = "UNZOOM" if zoom_enabled else "SCOPE"
+	sound.play_ui("ui")
+
+
+func create_settings_ui() -> void:
+	settings_panel = Panel.new()
+	settings_panel.add_theme_stylebox_override("panel", style(Color("#192733"), 20))
+	ui.add_child(settings_panel)
+	var padding := MarginContainer.new()
+	padding.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	for side in ["left", "right", "top", "bottom"]:
+		padding.add_theme_constant_override("margin_" + side, 16)
+	settings_panel.add_child(padding)
+	var stack := VBoxContainer.new()
+	stack.add_theme_constant_override("separation", 7)
+	padding.add_child(stack)
+	var title := make_label(27, Color("#e3faf5"))
+	title.text = "POCKET DISTRICT | PAUSE"
+	stack.add_child(title)
+	var sub := make_label(16, Color("#d2dce6"))
+	sub.text = "CAMERA, DISPLAY & SOUND"
+	stack.add_child(sub)
+	var fov_button := make_button("CAMERA DISTANCE", Color("#4a6572"))
+	fov_button.custom_minimum_size = Vector2(0, 48)
+	fov_button.pressed.connect(func() -> void:
+		camera_distance = 8.0 if camera_distance >= 10.0 else camera_distance + 1.0
+		fov_button.text = "CAMERA DISTANCE %.0fm" % camera_distance
+		sound.play_ui()
+	)
+	stack.add_child(fov_button)
+	var map_button := make_button("SHOW / HIDE MINIMAP", Color("#4a6572"))
+	map_button.custom_minimum_size = Vector2(0, 48)
+	map_button.pressed.connect(func() -> void: minimap.visible = not minimap.visible)
+	stack.add_child(map_button)
+	var fps_button := make_button("SHOW / HIDE FPS", Color("#4a6572"))
+	fps_button.custom_minimum_size = Vector2(0, 48)
+	fps_button.pressed.connect(func() -> void: perf_overlay.visible = not perf_overlay.visible)
+	stack.add_child(fps_button)
+	var audio_button := make_button("SOUND ON / OFF", Color("#4a6572"))
+	audio_button.custom_minimum_size = Vector2(0, 48)
+	audio_button.pressed.connect(func() -> void:
+		var index := AudioServer.get_bus_index("Master")
+		AudioServer.set_bus_mute(index, not AudioServer.is_bus_mute(index))
+	)
+	stack.add_child(audio_button)
+	var resume := make_button("RESUME GAME", Color("#28766a"))
+	resume.custom_minimum_size = Vector2(0, 56)
+	resume.pressed.connect(toggle_settings)
+	stack.add_child(resume)
+	settings_panel.visible = false
+
+
+func toggle_settings() -> void:
+	var show := not settings_panel.visible
+	settings_panel.visible = show
+	shop_panel.visible = false
+	fire_held = false
+	stick_value = Vector2.ZERO
+	get_tree().paused = show
 
 
 func layout_ui() -> void:
@@ -821,20 +1167,43 @@ func layout_ui() -> void:
 	status_label.size = Vector2(screen.x - 36, 32)
 	weapon_label.position = Vector2(24, 61)
 	weapon_label.size = Vector2(screen.x - 36, 32)
-	mission_label.position = Vector2(21, 136)
-	mission_label.size = Vector2(screen.x - 36, 32)
-	hint_label.position = Vector2(10, screen.y - 74)
-	hint_label.size = Vector2(screen.x - 20, 54)
-	stick_center = Vector2(screen.x * 0.73, screen.y - 185)
+	mission_label.position = Vector2(20, 121)
+	mission_label.size = Vector2(screen.x - 102, 35)
+	hint_label.position = Vector2(10, screen.y - 75)
+	hint_label.size = Vector2(screen.x - 20, 55)
+	stick_center = Vector2(screen.x * 0.73, screen.y - 115)
 	stick_outer.position = stick_center - Vector2(100, 100)
 	stick_outer.size = Vector2(200, 200)
 	stick_knob.size = Vector2(82, 82)
 	update_stick(stick_center)
-	fire_button.position = Vector2(screen.x - 142, screen.y - 486)
-	action_button.position = Vector2(screen.x - 142, screen.y - 402)
-	run_button.position = Vector2(screen.x - 292, screen.y - 486)
-	weapon_button.position = Vector2(screen.x - 292, screen.y - 402)
-	for button in [fire_button, action_button, run_button, weapon_button]:
-		button.size = Vector2(128, 68)
-	shop_panel.size = Vector2(minf(screen.x - 30, 540), 510)
+	# Two rows of three buttons remain above the stick on a narrow 360px phone.
+	var side := minf(128.0, (screen.x - 40.0) / 3.0)
+	var gap := 8.0
+	var group_left := screen.x - (side * 3.0 + gap * 2.0) - 12.0
+	var top := screen.y - 393.0
+	var bottom := screen.y - 317.0
+	for entry in [
+		{"button": weapon_button, "column": 0, "row": top},
+		{"button": reload_button, "column": 1, "row": top},
+		{"button": aim_button, "column": 2, "row": top},
+		{"button": run_button, "column": 0, "row": bottom},
+		{"button": action_button, "column": 1, "row": bottom},
+		{"button": fire_button, "column": 2, "row": bottom}
+	]:
+		var button: Button = entry["button"]
+		button.position = Vector2(group_left + float(entry["column"]) * (side + gap), float(entry["row"]))
+		button.size = Vector2(side, 68)
+	aim_button.disabled = String(selected_gun()["id"]) != "Sniper"
+	if aim_button.disabled:
+		zoom_enabled = false
+		camera.fov = 69.0
+	pause_button.position = Vector2(screen.x - 70, 116)
+	pause_button.size = Vector2(57, 43)
+	minimap.position = Vector2(14, 158)
+	minimap.size = Vector2(minf(94, screen.x * 0.26), minf(94, screen.x * 0.26))
+	perf_overlay.position = Vector2(15, 145)
+	if settings_panel != null:
+		settings_panel.size = Vector2(minf(screen.x - 28, 420), minf(screen.y - 65, 420))
+		settings_panel.position = (screen - settings_panel.size) * 0.5
+	shop_panel.size = Vector2(minf(screen.x - 30, 540), minf(screen.y - 55, 620))
 	shop_panel.position = (screen - shop_panel.size) * 0.5

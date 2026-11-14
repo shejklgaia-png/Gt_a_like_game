@@ -88,3 +88,20 @@ The build uses Godot 4.4.1 and includes the existing web export preset unchanged
 - Opposing pedestrians use separate passing lanes within the sidewalk and marked zebra-crossing width.
 - After 1.8 seconds without route progress, pedestrians automatically pick another legal sidewalk waypoint.
 - Automated smoke tests check real player movement across the curb, sidewalk geometry, character collision layers and stuck-route recovery.
+
+## v0.3.0 — city-systems expansion (partial 112-item implementation)
+
+Features now included in the prototype:
+- Synced 28-second traffic signals shared by cars, pedestrian crossing checks and generated traffic-light models.
+- Police A* route grid around buildings, sight-line memory, crosswalk route segments, temporary civilian panic and population replenishment.
+- Synthesized, royalty-free background loop, street sounds, gunshot, engine, police tone, footstep, impact, UI, death and reward effects.
+- Improved firearm hit scanning with occlusion, head/limb multipliers, range falloff, distinct magazines, reserve ammo, automatic reload and scope.
+- Generated trees, benches, refuse bins, hydrants, window and lane-strip GPU instancing and cached meshes/materials.
+- Updated HUD with crosshair, minimap, reload/scope controls, pause/settings, FPS monitor and more reachable portrait controls.
+- Timed delivery goals and rewards, saved mission progress, collectible once-only interior caches and backup-safe save data.
+- Camera obstruction checks, cinematic vehicle camera following and car-exit safety checks.
+- Two CI test suites: boot interaction smoke and autonomous simulation, required before APK export.
+
+**Important:** This is a considerable expansion but is **not a complete 112/112 implementation**. The exact item-by-item status is [ROADMAP_112.md](ROADMAP_112.md). Larger remaining features include intersecting turn traffic, pedestrian avoidance instead of passing through, district streaming, richer motion rigs, nontrivial content, and full Android device tests.
+
+The assets listed above are all constructed procedurally and use no third-party license-dependent binaries.

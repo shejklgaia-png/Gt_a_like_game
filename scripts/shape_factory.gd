@@ -1,5 +1,9 @@
 extends RefCounted
 ## Lightweight procedural primitives shared by the town and interiors.
+static var _materials: Dictionary = {}
+static var _box_meshes: Dictionary = {}
+static var _spheres: Dictionary = {}
+static var _colliders: Dictionary = {}
 
 static func box(parent: Node3D, at: Vector3, size: Vector3, color: Color, solid: bool = false) -> Node3D:
 	var base: Node3D
@@ -8,8 +12,11 @@ static func box(parent: Node3D, at: Vector3, size: Vector3, color: Color, solid:
 		body.position = at
 		parent.add_child(body)
 		var shape := CollisionShape3D.new()
-		var data := BoxShape3D.new()
-		data.size = size
+		var data: BoxShape3D = _colliders.get(size)
+		if data == null:
+			data = BoxShape3D.new()
+			data.size = size
+			_colliders[size] = data
 		shape.shape = data
 		body.add_child(shape)
 		base = body
@@ -19,8 +26,11 @@ static func box(parent: Node3D, at: Vector3, size: Vector3, color: Color, solid:
 		parent.add_child(visual)
 		base = visual
 	var mesh_node := MeshInstance3D.new()
-	var mesh := BoxMesh.new()
-	mesh.size = size
+	var mesh: BoxMesh = _box_meshes.get(size)
+	if mesh == null:
+		mesh = BoxMesh.new()
+		mesh.size = size
+		_box_meshes[size] = mesh
 	mesh_node.mesh = mesh
 	mesh_node.material_override = material(color)
 	base.add_child(mesh_node)
@@ -29,9 +39,12 @@ static func box(parent: Node3D, at: Vector3, size: Vector3, color: Color, solid:
 
 static func ball(parent: Node3D, at: Vector3, radius: float, color: Color) -> MeshInstance3D:
 	var node := MeshInstance3D.new()
-	var mesh := SphereMesh.new()
-	mesh.radius = radius
-	mesh.height = radius * 2.0
+	var mesh: SphereMesh = _spheres.get(radius)
+	if mesh == null:
+		mesh = SphereMesh.new()
+		mesh.radius = radius
+		mesh.height = radius * 2.0
+		_spheres[radius] = mesh
 	node.mesh = mesh
 	node.position = at
 	node.material_override = material(color)
@@ -40,10 +53,14 @@ static func ball(parent: Node3D, at: Vector3, radius: float, color: Color) -> Me
 
 
 static func material(color: Color) -> StandardMaterial3D:
+	var key := color.to_html(true)
+	if _materials.has(key):
+		return _materials[key]
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = color
 	mat.metallic = 0.08
 	mat.roughness = 0.8
+	_materials[key] = mat
 	return mat
 
 

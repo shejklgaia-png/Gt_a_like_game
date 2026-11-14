@@ -131,5 +131,54 @@ func run_smoke() -> void:
 		push_error("Stalled pedestrians are not recalculating waypoints")
 		quit(17)
 		return
+	# Validate the new generated assets and control modules.
+	if game.sound == null or game.sound.sounds.size() < 12:
+		push_error("Procedural sound library is not generated")
+		quit(18)
+		return
+	if game.minimap == null or game.settings_panel == null or game.reload_button == null:
+		push_error("Minimap/settings/reload HUD missing")
+		quit(19)
+		return
+	if town.get_node_or_null("TrafficLights") == null:
+		push_error("Traffic signals not spawned")
+		quit(20)
+		return
+	# Buying, reloading, receiving an order, and persistence should work.
+	game.ammunition["Handgun"] = 75
+	game.loaded_rounds["Handgun"] = 0
+	game.reload_gun()
+	if game.reload_weapon_id != "Handgun" or game.reload_clock <= 0.0:
+		push_error("Reload state did not start")
+		quit(21)
+		return
+	game.finish_reload()
+	if int(game.loaded_rounds["Handgun"]) != 15 or int(game.ammunition["Handgun"]) != 60:
+		push_error("Reload did not move magazine rounds from reserves")
+		quit(22)
+		return
+	game.mission_stage = 0
+	game.advance_delivery()
+	if game.mission_stage != 1 or game.mission_limit <= 0 or game.mission_reward <= 0:
+		push_error("Delivery order did not initialize correctly")
+		quit(23)
+		return
+	game.save_game()
+	var state: Dictionary = load("res://scripts/safe_save.gd").load_json(game.SAVE_PATH)
+	if int(state.get("mission_stage", -1)) != 1 or int(state.get("version", 0)) < 2:
+		push_error("Versioned mission save/load is incorrect")
+		quit(24)
+		return
+	game.toggle_settings()
+	if not game.settings_panel.visible or not paused:
+		push_error("Pause panel failed to suspend gameplay")
+		quit(25)
+		return
+	game.toggle_settings()
+	if game.settings_panel.visible or paused:
+		push_error("Pause panel failed to resume gameplay")
+		quit(26)
+		return
+	print("PASS: traffic lights, synthesized audio, minimap, pausing, weapon reloading, mission timer and saved state")
 	print("PASS: sidewalks navigable; pedestrians ignore crowd/vehicle collisions and recover stalled routes")
 	quit(0)
