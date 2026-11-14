@@ -24,6 +24,7 @@ var indoors: bool = false
 var active_building: String = ""
 var outdoor_exit: Vector3
 var layouts: Dictionary = {}
+var looted_buildings: Array[String] = []
 var owned_weapons: Array[String] = ["Handgun"]
 var current_weapon: int = 0
 var ammunition: Dictionary = {"Handgun": 180}
@@ -503,7 +504,17 @@ func interaction() -> void:
 		close_shop()
 		return
 	if indoors:
-		if interior.exit_near(hero.global_position):
+		if interior.loot_near(hero.global_position):
+			var reward := interior.search_loot(hero.global_position)
+			if reward > 0:
+				cash += reward
+				total_earnings += reward
+				if not looted_buildings.has(active_building):
+					looted_buildings.append(active_building)
+				sound.play_ui("cash")
+				show_message("FOUND SUPPLIES +$%d" % reward)
+				save_game()
+		elif interior.exit_near(hero.global_position):
 			leave_interior()
 		return
 	if car_driven != null:
@@ -594,7 +605,7 @@ func enter_interior(door: Dictionary) -> void:
 	if not layouts.has(active_building):
 		layouts[active_building] = InteriorScript.make_layout(active_building)
 		save_game()
-	interior.display_layout(active_building, layouts[active_building])
+	interior.display_layout(active_building, layouts[active_building], looted_buildings.has(active_building))
 	indoors = true
 	city.visible = false
 	city.process_mode = Node.PROCESS_MODE_DISABLED
@@ -681,6 +692,9 @@ func load_game() -> void:
 	mission_limit = maxf(0.0, float(decoded.get("mission_limit", 0.0)))
 	mission_reward = maxi(0, int(decoded.get("mission_reward", 0)))
 	layouts = decoded.get("interiors", {})
+	looted_buildings.clear()
+	for location in decoded.get("looted", []):
+		looted_buildings.append(String(location))
 	owned_weapons.clear()
 	for item in decoded.get("owned", ["Handgun"]):
 		var name := String(item)
@@ -718,6 +732,7 @@ func save_game() -> void:
 		"mission_limit": mission_limit,
 		"mission_reward": mission_reward,
 		"interiors": layouts,
+		"looted": looted_buildings,
 		"owned": owned_weapons,
 		"ammo": ammunition,
 		"loaded": loaded_rounds,
@@ -809,7 +824,10 @@ func update_hud() -> void:
 	elif carjack_busy:
 		caption = "TAKING VEHICLE..."
 	elif indoors:
-		caption = "ACTION: EXIT" if interior.exit_near(hero.global_position) else "RETURN TO THE EXIT MARKER"
+		if interior.loot_near(hero.global_position):
+			caption = "ACTION: SEARCH CACHE"
+		else:
+			caption = "ACTION: EXIT" if interior.exit_near(hero.global_position) else "RETURN TO THE EXIT MARKER"
 	elif car_driven != null:
 		caption = "ACTION: EXIT CAR  •  STICK TO DRIVE"
 	elif not city.closest_door(hero.global_position).is_empty():
