@@ -31,6 +31,8 @@ var attack_clock: float = -1.0
 var attack_contact: bool = false
 var attack_damage: float = 0.0
 var attack_target: Node3D
+var stalled_time: float = 0.0
+var previous_distance: float = INF
 
 
 func setup(is_officer: bool, initial_anchor: Vector3, seed_value: int, p_axis: int = 0) -> void:
@@ -48,6 +50,10 @@ func setup(is_officer: bool, initial_anchor: Vector3, seed_value: int, p_axis: i
 
 
 func _ready() -> void:
+	# Nonblocking crowds: pedestrians still collide with buildings/ground and remain raycast targets.
+	# Cars can see and brake for actors, but actors cannot deadlock each other in the same lane.
+	collision_layer = 2
+	collision_mask = 1
 	var collider := CollisionShape3D.new()
 	collider.name = "CollisionShape3D"
 	var shape := CapsuleShape3D.new()
@@ -90,6 +96,8 @@ func select_sidewalk_goal() -> void:
 	segment_min = float(block_index) * 36.0 + 8.0
 	segment_max = float(block_index + 1) * 36.0 - 8.0
 	var along := rng.randf_range(segment_min, segment_max)
+	previous_distance = INF
+	stalled_time = 0.0
 	if sidewalk_axis == 0:
 		target = Vector3(anchor.x, anchor.y, along)
 	else:
@@ -129,6 +137,20 @@ func _physics_process(delta: float) -> void:
 			position.x = clampf(position.x, anchor.x - 0.38, anchor.x + 0.38)
 		else:
 			position.z = clampf(position.z, anchor.z - 0.38, anchor.z + 0.38)
+	# Collisions with geometry no longer leave a civilian frozen forever at its target.
+	# Reselect a safe lane waypoint when horizontal movement makes no progress.
+	if not officer and is_walking:
+		var remaining := Vector2(target.x - global_position.x, target.z - global_position.z).length()
+		if remaining > previous_distance - 0.025:
+			stalled_time += delta
+		else:
+			stalled_time = maxf(0.0, stalled_time - delta * 2.0)
+		previous_distance = remaining
+		if stalled_time > 1.8:
+			select_sidewalk_goal()
+	else:
+		stalled_time = 0.0
+		previous_distance = INF
 	moving = move_toward(moving, 1.0 if is_walking else 0.0, delta * 7.0)
 
 
