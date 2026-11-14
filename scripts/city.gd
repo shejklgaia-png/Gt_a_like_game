@@ -6,6 +6,7 @@ const VehicleScene = preload("res://scripts/vehicle.gd")
 const ActorScene = preload("res://scripts/actor.gd")
 const UrbanAssets = preload("res://scripts/urban_assets.gd")
 const TrafficLights = preload("res://scripts/traffic_light_visuals.gd")
+const NavigationGrid = preload("res://scripts/nav_grid.gd")
 var buildings: Array[Dictionary] = []
 var cars: Array[PocketVehicle] = []
 var people: Array[PocketActor] = []
@@ -13,6 +14,7 @@ var rng := RandomNumberGenerator.new()
 var car_root: Node3D
 var person_root: Node3D
 var police_root: Node3D
+var navigation: PocketNavGrid
 const ROAD_COLOR := Color("#293341")
 const SIDEWALK_COLOR := Color("#697480")
 
@@ -31,6 +33,9 @@ func build_city() -> void:
 	for ix in range(-3, 3):
 		for iz in range(-3, 3):
 			create_building(ix, iz)
+	navigation = NavigationGrid.new()
+	for building in buildings:
+		navigation.building(building["position"], float(building["width"]) * 0.5, float(building["depth"]) * 0.5)
 	car_root = Node3D.new()
 	car_root.name = "Traffic"
 	add_child(car_root)
@@ -111,7 +116,9 @@ func create_building(ix: int, iz: int) -> void:
 		"position": Vector3(cx, 0, cz),
 		"door": door,
 		"shop": shop,
-		"height": height
+		"height": height,
+		"width": width,
+		"depth": depth
 	})
 
 
@@ -164,6 +171,7 @@ func add_police_near(at: Vector3, seed_value: int) -> PocketActor:
 	var walk_z := clampf(at.z + rng.randf_range(-19.0, 19.0), -110.0, 110.0)
 	cop.position = Vector3(street_x + 6.35, 0.24, walk_z)
 	cop.setup(true, cop.position, seed_value)
+	cop.navigation = navigation
 	police_root.add_child(cop)
 	return cop
 
