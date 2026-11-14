@@ -566,23 +566,38 @@ func _input(event: InputEvent) -> void:
 		elif event.keycode == KEY_R:
 			sprint_enabled = not sprint_enabled
 	if event is InputEventScreenTouch:
-		if event.pressed and stick_pointer == -1 and (event.position - stick_center).length() < 145.0 and not on_action_button(event.position):
-			stick_pointer = event.index
+		if event.pressed and not on_action_button(event.position) and not shop_panel.visible:
+			if stick_pointer == -1 and (event.position - stick_center).length() < 145.0:
+				stick_pointer = event.index
+				update_stick(event.position)
+			elif camera_touch == -1 and event.position.y < ui.size.y - 490.0:
+				camera_touch = event.index
+		elif not event.pressed:
+			if event.index == stick_pointer:
+				stick_pointer = -1
+				update_stick(stick_center)
+			if event.index == camera_touch:
+				camera_touch = -1
+	if event is InputEventScreenDrag:
+		if event.index == stick_pointer:
 			update_stick(event.position)
-		elif not event.pressed and event.index == stick_pointer:
-			stick_pointer = -1
-			update_stick(stick_center)
-	if event is InputEventScreenDrag and event.index == stick_pointer:
-		update_stick(event.position)
-	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
-		if event.pressed and (event.position - stick_center).length() < 145.0 and not on_action_button(event.position):
-			mouse_stick = true
+		elif event.index == camera_touch:
+			rotate_camera(event.relative)
+	if event is InputEventMouseButton:
+		if event.button_index == MOUSE_BUTTON_RIGHT:
+			camera_mouse = event.pressed
+		elif event.button_index == MOUSE_BUTTON_LEFT:
+			if event.pressed and (event.position - stick_center).length() < 145.0 and not on_action_button(event.position):
+				mouse_stick = true
+				update_stick(event.position)
+			elif not event.pressed and mouse_stick:
+				mouse_stick = false
+				update_stick(stick_center)
+	if event is InputEventMouseMotion:
+		if mouse_stick:
 			update_stick(event.position)
-		elif not event.pressed and mouse_stick:
-			mouse_stick = false
-			update_stick(stick_center)
-	if event is InputEventMouseMotion and mouse_stick:
-		update_stick(event.position)
+		elif camera_mouse:
+			rotate_camera(event.relative)
 
 
 func on_action_button(point: Vector2) -> bool:
@@ -608,8 +623,12 @@ func update_hud() -> void:
 	var waypoint := mission_point - current_position
 	var heading := waypoint_arrow(waypoint)
 	mission_label.text = "DELIVERY %s %dm  •  %s  [%d]" % [heading, int(waypoint.length()), "PICKUP" if mission_stage == 0 else "DROP OFF", deliveries]
-	var caption := "DRAG TO MOVE  •  ACTION TO INTERACT"
-	if indoors:
+	var caption := "MOVE: PAD  •  CAMERA: SWIPE SCENE  •  ACTION"
+	if hero.dead:
+		caption = "WASTED  •  RESPAWNING"
+	elif carjack_busy:
+		caption = "TAKING VEHICLE..."
+	elif indoors:
 		caption = "ACTION: EXIT" if interior.exit_near(hero.global_position) else "RETURN TO THE EXIT MARKER"
 	elif car_driven != null:
 		caption = "ACTION: EXIT CAR  •  STICK TO DRIVE"
@@ -637,6 +656,10 @@ func setup_ui() -> void:
 	ui = Control.new()
 	ui.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	layer.add_child(ui)
+	hurt_overlay = ColorRect.new()
+	hurt_overlay.color = Color(0.8, 0.12, 0.10, 0.0)
+	hurt_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ui.add_child(hurt_overlay)
 	var banner := Panel.new()
 	banner.name = "Banner"
 	banner.add_theme_stylebox_override("panel", style(Color(0.045, 0.09, 0.14, 0.91), 14))
@@ -777,6 +800,7 @@ func purchase_gun(gun_name: String) -> void:
 		if not already_owned:
 			owned_weapons.append(gun_name)
 			current_weapon = owned_weapons.size() - 1
+			hero.equip_weapon(gun_name)
 		ammunition[gun_name] = int(ammunition.get(gun_name, 0)) + int(gun["ammo"])
 		save_game()
 		refresh_shop_ui()
@@ -788,6 +812,8 @@ func layout_ui() -> void:
 		return
 	var screen := get_viewport().get_visible_rect().size
 	ui.size = screen
+	if is_instance_valid(hurt_overlay):
+		hurt_overlay.size = screen
 	var banner := ui.get_node("Banner") as Panel
 	banner.position = Vector2(12, 12)
 	banner.size = Vector2(screen.x - 24, 101)
