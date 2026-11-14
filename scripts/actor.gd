@@ -281,7 +281,10 @@ func _process(delta: float) -> void:
 		if not attack_contact and phase >= 0.50:
 			attack_contact = true
 			if is_instance_valid(attack_target) and global_position.distance_to(attack_target.global_position) <= 2.75:
-				if attack_target.has_method("hurt"):
+				var ray := PhysicsRayQueryParameters3D.create(global_position + Vector3(0, 1.35, 0), attack_target.global_position + Vector3(0, 1.05, 0))
+				ray.collision_mask = 1
+				ray.exclude = [get_rid()]
+				if get_world_3d().direct_space_state.intersect_ray(ray).is_empty() and attack_target.has_method("hurt"):
 					attack_target.hurt(attack_damage)
 		if phase >= 1.0:
 			attack_clock = -1.0
