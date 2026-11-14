@@ -116,7 +116,7 @@ func spawn_civilians() -> void:
 			person.position = Vector3(v + 6.35, 0.13, along)
 		else:
 			person.position = Vector3(along, 0.13, v + 6.35)
-		person.setup(false, person.position, seed_number)
+		person.setup(false, person.position, seed_number, i % 2)
 		person_root.add_child(person)
 		people.append(person)
 
