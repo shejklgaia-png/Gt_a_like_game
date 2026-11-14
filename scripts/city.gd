@@ -25,6 +25,7 @@ func build_city() -> void:
 		for k in range(-12, 13):
 			Shapes.box(self, Vector3(pos, 0.056, k * 9.0), Vector3(0.13, 0.015, 3.5), Color("#aab2a0"))
 			Shapes.box(self, Vector3(k * 9.0, 0.058, pos), Vector3(3.5, 0.015, 0.13), Color("#aab2a0"))
+	add_crosswalks()
 	for ix in range(-3, 3):
 		for iz in range(-3, 3):
 			create_building(ix, iz)
@@ -40,6 +41,19 @@ func build_city() -> void:
 	spawn_traffic()
 	spawn_civilians()
 	add_street_props()
+
+
+func add_crosswalks() -> void:
+	# Zebra stripes exactly aligned with the two sidewalk lines at every intersection.
+	for ix in range(-3, 4):
+		for iz in range(-3, 4):
+			var x := float(ix) * 36.0
+			var z := float(iz) * 36.0
+			for stripe in range(6):
+				var offset := float(stripe) * 1.45 - 3.65
+				for side in [-1.0, 1.0]:
+					Shapes.box(self, Vector3(x + side * 6.35, 0.073, z + offset), Vector3(2.0, 0.02, 0.6), Color("#e7ebdc"))
+					Shapes.box(self, Vector3(x + offset, 0.074, z + side * 6.35), Vector3(0.6, 0.02, 2.0), Color("#e7ebdc"))
 
 
 func create_building(ix: int, iz: int) -> void:
@@ -109,7 +123,8 @@ func spawn_traffic() -> void:
 func spawn_civilians() -> void:
 	for i in range(46):
 		var v := float(rng.randi_range(-3, 3)) * 36.0
-		var along := rng.randf_range(-109.0, 109.0)
+		var block := rng.randi_range(-3, 2)
+		var along := float(block) * 36.0 + rng.randf_range(8.5, 27.5)
 		var person: PocketActor = ActorScene.new()
 		var seed_number := rng.randi()
 		if i % 2 == 0:
