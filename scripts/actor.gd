@@ -81,6 +81,14 @@ func joint(at: Vector3, size: Vector3, tint: Color, height_offset: float) -> Nod
 
 
 func select_sidewalk_goal() -> void:
+	# Same-sidewalk motion. Inter-block movement follows marked crosswalk corridors.
+	var reference: float = target.z if sidewalk_axis == 0 else target.x
+	var block_index := clampi(floori(reference / 36.0), -3, 2)
+	if rng.randf() < 0.18:
+		var next_block := clampi(block_index + (1 if rng.randf() < 0.5 else -1), -3, 2)
+		block_index = next_block
+	segment_min = float(block_index) * 36.0 + 8.0
+	segment_max = float(block_index + 1) * 36.0 - 8.0
 	var along := rng.randf_range(segment_min, segment_max)
 	if sidewalk_axis == 0:
 		target = Vector3(anchor.x, anchor.y, along)
