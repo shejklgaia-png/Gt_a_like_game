@@ -1,0 +1,49 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Export Godot APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container:
+      image: barichello/godot-ci:4.4.1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Import Godot project
+        run: godot --headless --path . --editor --import --quit
+      - name: Validate generated game scene
+        run: godot --headless --path . --script res://scripts/smoke_test.gd
+      - name: Build ARM64 debug APK
+        run: |
+          mkdir -p build
+          godot --headless --path . --export-debug "Android" build/PocketDistrict-debug.apk
+          test -s build/PocketDistrict-debug.apk
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: PocketDistrict-Android-APK
+          path: build/PocketDistrict-debug.apk
+          retention-days: 30
+          if-no-files-found: error
+      - name: Publish downloadable preview APK
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: pocket-district-preview
+          name: Pocket District - Android Preview
+          body: |
+            Android ARM64 debug APK. Built from the latest main branch.
+            Test build, not a final game release.
+          files: build/PocketDistrict-debug.apk
+          overwrite_files: true
+          prerelease: true
