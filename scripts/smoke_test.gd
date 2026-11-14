@@ -36,5 +36,48 @@ func run_smoke() -> void:
 		push_error("Expected starter handgun")
 		quit(5)
 		return
-	print("PASS: Game starts; 36 buildings, 18 cars, 46 pedestrians; interiors and loadout initialized")
+	# Exercise camera orbit and articulated weapon variants.
+	var first_yaw: float = game.camera_yaw
+	game.rotate_camera(Vector2(50, -25))
+	if absf(float(game.camera_yaw) - first_yaw) < 0.1:
+		push_error("Camera orbit controls did not change yaw")
+		quit(6)
+		return
+	for gun_name in ["Handgun", "Rifle", "Shotgun", "Sniper", "Machine Gun"]:
+		hero.equip_weapon(gun_name)
+		if hero.weapon_kind != gun_name or hero.muzzle == null or not is_instance_valid(hero.muzzle):
+			push_error("Weapon model or muzzle marker invalid for " + gun_name)
+			quit(7)
+			return
+	hero.equip_weapon("Handgun")
+	# Citizens must be placed alongside roads, never randomly in a roadway.
+	for citizen in town.people:
+		if citizen.sidewalk_axis == 0:
+			if absf(citizen.position.x - citizen.anchor.x) > 0.15:
+				push_error("Pedestrian has left its marked sidewalk corridor")
+				quit(8)
+				return
+		elif absf(citizen.position.z - citizen.anchor.z) > 0.15:
+			push_error("Pedestrian has left its marked sidewalk corridor")
+			quit(8)
+			return
+	# NPCs fall before they are removed; police have a separate baton action.
+	var first_citizen: PocketActor = town.people[0]
+	first_citizen.hit(250)
+	if not first_citizen.dead:
+		push_error("NPC death animation state did not activate")
+		quit(9)
+		return
+	var police: PocketActor = town.add_police_near(hero.global_position, 999)
+	if not police.officer or not police.has_method("try_baton_attack"):
+		push_error("Police melee equipment not initialized")
+		quit(10)
+		return
+	var car: PocketVehicle = town.cars[0]
+	car.open_driver_door(true)
+	if not car.door_open:
+		push_error("Car takeover door animation flag failed")
+		quit(11)
+		return
+	print("PASS: 36 buildings, 18 traffic cars, 46 pedestrians; orbit camera, 5 gun models, sidewalks, police baton and death states")
 	quit(0)

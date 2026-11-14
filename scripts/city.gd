@@ -25,6 +25,7 @@ func build_city() -> void:
 		for k in range(-12, 13):
 			Shapes.box(self, Vector3(pos, 0.056, k * 9.0), Vector3(0.13, 0.015, 3.5), Color("#aab2a0"))
 			Shapes.box(self, Vector3(k * 9.0, 0.058, pos), Vector3(3.5, 0.015, 0.13), Color("#aab2a0"))
+	add_crosswalks()
 	for ix in range(-3, 3):
 		for iz in range(-3, 3):
 			create_building(ix, iz)
@@ -42,13 +43,42 @@ func build_city() -> void:
 	add_street_props()
 
 
+func add_crosswalks() -> void:
+	# One instanced mesh instead of 1176 individual MeshInstances for mobile GPUs.
+	var stripe_mesh := BoxMesh.new()
+	stripe_mesh.size = Vector3(2.0, 0.02, 0.6)
+	var batch := MultiMesh.new()
+	batch.transform_format = MultiMesh.TRANSFORM_3D
+	batch.mesh = stripe_mesh
+	batch.instance_count = 7 * 7 * 6 * 4
+	var index := 0
+	for ix in range(-3, 4):
+		for iz in range(-3, 4):
+			var x := float(ix) * 36.0
+			var z := float(iz) * 36.0
+			for stripe in range(6):
+				var offset := float(stripe) * 1.45 - 3.65
+				for side in [-1.0, 1.0]:
+					var pos_a := Vector3(x + side * 6.35, 0.073, z + offset)
+					batch.set_instance_transform(index, Transform3D(Basis.IDENTITY, pos_a))
+					index += 1
+					var pos_b := Vector3(x + offset, 0.074, z + side * 6.35)
+					batch.set_instance_transform(index, Transform3D(Basis(Vector3.UP, PI * 0.5), pos_b))
+					index += 1
+	var painted := MultiMeshInstance3D.new()
+	painted.name = "Crosswalks"
+	painted.multimesh = batch
+	painted.material_override = Shapes.material(Color("#e7ebdc"))
+	add_child(painted)
+
+
 func create_building(ix: int, iz: int) -> void:
 	var cx := (float(ix) + 0.5) * 36.0
 	var cz := (float(iz) + 0.5) * 36.0
 	var tall := rng.randi_range(11, 32)
 	var height := float(tall)
-	var width := rng.randf_range(20.0, 24.0)
-	var depth := rng.randf_range(19.0, 24.0)
+	var width := rng.randf_range(18.5, 20.0)
+	var depth := rng.randf_range(18.5, 20.0)
 	var shop := ix == 0 and iz == -1
 	if shop:
 		height = 12.0
@@ -109,7 +139,8 @@ func spawn_traffic() -> void:
 func spawn_civilians() -> void:
 	for i in range(46):
 		var v := float(rng.randi_range(-3, 3)) * 36.0
-		var along := rng.randf_range(-109.0, 109.0)
+		var block := rng.randi_range(-3, 2)
+		var along := float(block) * 36.0 + rng.randf_range(8.5, 27.5)
 		var person: PocketActor = ActorScene.new()
 		var seed_number := rng.randi()
 		if i % 2 == 0:

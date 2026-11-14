@@ -69,3 +69,14 @@ Streaming city chunks, navigation and traffic signals; shoot animations, gun rec
 Push to `main` to start the **Build Android APK** GitHub Actions workflow. It runs an engine smoke test, creates an ARM64 debug-signed `PocketDistrict-debug.apk`, and attaches it to the run as an artifact. Successful builds from `main` also publish the APK in the [Pocket District Preview release](https://github.com/shejklgaia-png/Gt_a_like_game/releases/tag/pocket-district-preview).
 
 The build uses Godot 4.4.1 and includes the existing web export preset unchanged. Android packages are preview/debug signed and intended for manual installation, not Google Play distribution.
+
+## Movement, camera and combat update
+
+- **Closer overhead camera**: default 64° pitch, 9.1 m camera arm; dynamically shortens when a building blocks the view.
+- **Orbit on a phone**: swipe over the **upper scene area** to rotate yaw and adjust pitch (42°–78°); drag the bottom-right pad to walk. Use one thumb sequentially. On desktop, hold right mouse button while dragging.
+- **Weapon-specific firing**: pistol, automatic rifle, pump shotgun (8 pellets), sniper rifle and machine gun now use distinct procedural models, muzzle flashes, appropriate shot spread, hitscan collisions, impact particles and floating damage numbers.
+- **Characters**: visible gait via joint animation, hurt reactions, a collapsing death animation, and delayed respawn for the player. Police swing batons with a timed contact frame.
+- **Car theft**: pedestrians and AI vehicles stop for people in the lane; taking a vehicle opens its door and plays a reach/entry animation before driving.
+- **Pedestrians**: movement stays aligned with sidewalks, while occasional inter-block crossings remain on painted zebra-crossing corridors.
+
+**Status:** experimental preview; smoke tests check scene initialization and key component states, but do not replace Android device testing. Vehicle braking uses forward raycasts and is not yet a full traffic simulation; walking/death/carjacking are procedural rig motions rather than motion-captured animations.

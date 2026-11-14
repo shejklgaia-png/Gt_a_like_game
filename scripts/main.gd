@@ -4,6 +4,7 @@ const CityScript = preload("res://scripts/city.gd")
 const HeroScript = preload("res://scripts/hero.gd")
 const InteriorScript = preload("res://scripts/interior.gd")
 const Shapes = preload("res://scripts/shape_factory.gd")
+const Fx = preload("res://scripts/combat_fx.gd")
 
 const WEAPONS := [
 	{"id": "Handgun", "price": 0, "damage": 25.0, "rate": 0.29, "range": 50.0, "ammo": 180},
@@ -40,6 +41,14 @@ var mission_marker: Node3D
 var mission_marker_label: Label3D
 var deliveries: int = 0
 var autosave_clock: float = 0.0
+var camera_yaw: float = 0.0
+var camera_pitch: float = deg_to_rad(64.0)
+var camera_distance: float = 9.1
+var camera_touch: int = -1
+var camera_mouse: bool = false
+var carjack_busy: bool = false
+var death_pending: bool = false
+var hurt_overlay: ColorRect
 
 var ui: Control
 var status_label: Label
@@ -80,11 +89,14 @@ func _ready() -> void:
 	camera.current = true
 	camera.far = 270.0
 	add_child(camera)
-	camera.position = hero.position + Vector3(0, 7, 12)
+	camera.position = hero.position + Vector3(0, 7.4, 4.1)
 	camera.look_at(hero.position + Vector3(0, 1.0, 0))
+	hero.damaged.connect(on_hero_damaged)
+	hero.died.connect(on_hero_died)
 	for person in city.people:
 		connect_actor(person)
 	load_game()
+	hero.equip_weapon(String(selected_gun()["id"]))
 	setup_ui()
 	make_mission_marker()
 	get_viewport().size_changed.connect(layout_ui)
@@ -121,28 +133,26 @@ func _physics_process(delta: float) -> void:
 	if shop_panel != null and shop_panel.visible:
 		return
 	var motion := read_motion()
-	if indoors or car_driven == null:
-		hero.walk(motion, sprint_enabled or Input.is_key_pressed(KEY_SHIFT), camera, delta)
-	else:
-		car_driven.drive_input = motion
-		car_driven.nitro = sprint_enabled or Input.is_key_pressed(KEY_SHIFT)
-		hero.global_position = car_driven.global_position + Vector3(0, 2.0, 0)
-	if wanted > 0 and not indoors:
+	if not carjack_busy and not hero.dead:
+		if indoors or car_driven == null:
+			hero.walk(motion, sprint_enabled or Input.is_key_pressed(KEY_SHIFT), camera, delta)
+		else:
+			car_driven.drive_input = motion
+			car_driven.nitro = sprint_enabled or Input.is_key_pressed(KEY_SHIFT)
+			hero.global_position = car_driven.global_position + Vector3(0, 2.0, 0)
+	if wanted > 0 and not indoors and not hero.dead:
 		for officer_node in city.police_root.get_children():
 			var officer := officer_node as PocketActor
-			if not is_instance_valid(officer):
+			if not is_instance_valid(officer) or officer.dead:
 				continue
 			officer.engage = true
 			officer.chase_target = car_driven if car_driven != null else hero
 			var focus := car_driven.global_position if car_driven != null else hero.global_position
-			if officer.global_position.distance_to(focus) < 12.0 and officer.strike_cooldown <= 0.0:
-				officer.strike_cooldown = 1.7
-				hero.hurt(7.0 + float(wanted))
-				if hero.hp <= 0.0:
-					busted()
+			if officer.global_position.distance_to(focus) < 2.9:
+				officer.try_baton_attack(hero, 7.0 + float(wanted))
 			elif officer.global_position.distance_to(focus) > 95.0:
 				officer.queue_free()
-
+	update_camera(delta)
 
 func _process(delta: float) -> void:
 	autosave_clock += delta
@@ -163,7 +173,6 @@ func _process(delta: float) -> void:
 			wanted -= 1
 			wanted_idle = 0.0
 	animate_marker(delta)
-	update_camera(delta)
 	update_hud()
 
 
@@ -185,18 +194,39 @@ func read_motion() -> Vector2:
 
 func update_camera(delta: float) -> void:
 	var focus := hero.global_position
-	var desired := focus + Vector3(0, 7.2, 12.0)
-	if indoors:
-		desired = focus + Vector3(0.0, 11.0, 6.4)
-	elif car_driven != null:
+	if car_driven != null:
 		focus = car_driven.global_position
-		desired = focus + car_driven.global_transform.basis.z * 11.5 + Vector3(0, 6.3, 0)
-	camera.global_position = camera.global_position.lerp(desired, clampf(delta * (8.0 if indoors else 5.0), 0.0, 1.0))
-	camera.look_at(focus + Vector3(0, 1.1, 0), Vector3.UP)
+	var elevation := 0.95 if car_driven == null else 1.55
+	var look_at_position := focus + Vector3(0.0, elevation, 0.0)
+	var arm_distance := camera_distance * (1.17 if car_driven != null else 1.0)
+	var horizontal := cos(camera_pitch) * arm_distance
+	var offset := Vector3(sin(camera_yaw) * horizontal, sin(camera_pitch) * arm_distance, cos(camera_yaw) * horizontal)
+	var requested := look_at_position + offset
+	var params := PhysicsRayQueryParameters3D.create(look_at_position, requested)
+	params.exclude = [hero.get_rid()]
+	if is_instance_valid(car_driven):
+		params.exclude.append(car_driven.get_rid())
+	var obstruction := get_world_3d().direct_space_state.intersect_ray(params)
+	var obstructed := not obstruction.is_empty()
+	var destination := requested
+	if obstructed:
+		var point: Vector3 = obstruction["position"]
+		var direction := (requested - look_at_position).normalized()
+		destination = point - direction * 0.48
+		if destination.distance_to(look_at_position) < 1.25:
+			destination = look_at_position + direction * 1.25
+	var smooth := 14.0 if obstructed else (9.0 if indoors else 7.5)
+	camera.global_position = camera.global_position.lerp(destination, clampf(delta * smooth, 0.0, 1.0))
+	camera.look_at(look_at_position, Vector3.UP)
+
+
+func rotate_camera(relative: Vector2) -> void:
+	camera_yaw = wrapf(camera_yaw - relative.x * 0.008, -PI, PI)
+	camera_pitch = clampf(camera_pitch + relative.y * 0.0055, deg_to_rad(42.0), deg_to_rad(78.0))
 
 
 func shoot() -> void:
-	if indoors or shoot_clock > 0.0 or (shop_panel != null and shop_panel.visible):
+	if hero.dead or carjack_busy or shoot_clock > 0.0 or (shop_panel != null and shop_panel.visible):
 		return
 	var gun := selected_gun()
 	var gun_id: String = gun["id"]
@@ -204,68 +234,106 @@ func shoot() -> void:
 		return
 	shoot_clock = float(gun["rate"])
 	ammunition[gun_id] = int(ammunition.get(gun_id, 0)) - 1
-	var origin := hero.global_position + Vector3(0, 1.36, 0)
-	var forward := -hero.body_visual.global_transform.basis.z
-	if car_driven != null:
-		origin = car_driven.global_position + Vector3(0, 1.55, -0.4)
-		forward = -car_driven.global_transform.basis.z
+	var forward := -camera.global_transform.basis.z
 	forward.y = 0.0
 	forward = forward.normalized()
-	var best_actor: PocketActor
+	if forward.length_squared() < 0.2:
+		forward = Vector3.FORWARD
+	var origin := hero.muzzle.global_position
+	if car_driven != null:
+		origin = car_driven.global_position + Vector3(0, 1.6, 0) - car_driven.global_transform.basis.z * 2.25
+	else:
+		hero.face_direction(forward, 1.0)
+		hero.kick_recoil(0.55 if gun_id == "Shotgun" else 0.25)
+		origin = hero.muzzle.global_position
+	var aim := forward
 	var best_rank := INF
-	var max_range := float(gun["range"])
-	var potential: Array[Node] = city.person_root.get_children() + city.police_root.get_children()
-	for node in potential:
-		var a := node as PocketActor
-		if not is_instance_valid(a):
+	var cone_angle := deg_to_rad(4.0 if gun_id == "Sniper" else 12.0)
+	var actors: Array[Node] = city.person_root.get_children() + city.police_root.get_children() if not indoors else []
+	for item in actors:
+		var candidate := item as PocketActor
+		if not is_instance_valid(candidate) or candidate.dead:
 			continue
-		var to_actor := a.global_position + Vector3(0, 1.2, 0) - origin
-		var distance := to_actor.length()
-		if distance > max_range or distance < 0.4:
+		var toward := candidate.global_position + Vector3(0, 1.05, 0) - origin
+		var dist := toward.length()
+		if dist > float(gun["range"]) or dist < 0.5:
 			continue
-		var alignment := forward.dot(to_actor.normalized())
-		if alignment < (0.90 if gun_id == "Sniper" else 0.72):
+		var alignment := forward.dot(toward.normalized())
+		if alignment <= cos(cone_angle):
 			continue
-		var rank := distance * (1.0 + (1.0 - alignment) * 5.0)
+		var rank := dist * (1.0 + (1.0 - alignment) * 10.0)
 		if rank < best_rank:
 			best_rank = rank
-			best_actor = a
-	var shot_to := origin + forward * minf(max_range, 42.0)
-	if best_actor != null:
-		var aim := best_actor.global_position + Vector3(0, 1.0, 0)
-		var ray := PhysicsRayQueryParameters3D.create(origin, aim)
-		if car_driven != null:
-			ray.exclude = [car_driven.get_rid()]
-		else:
-			ray.exclude = [hero.get_rid()]
-		var hit := get_world_3d().direct_space_state.intersect_ray(ray)
-		if hit.is_empty() or hit.get("collider") == best_actor:
-			shot_to = aim
-			best_actor.hit(float(gun["damage"]))
-	add_tracer(origin, shot_to)
-	if wanted == 0:
+			aim = toward.normalized()
+	var pellet_count := 8 if gun_id == "Shotgun" else 1
+	var angular_spread := 2.0
+	match gun_id:
+		"Handgun":
+			angular_spread = 1.9
+		"Rifle":
+			angular_spread = 1.0
+		"Shotgun":
+			angular_spread = 7.0
+		"Sniper":
+			angular_spread = 0.18
+		"Machine Gun":
+			angular_spread = 3.1
+	var total_hits: Dictionary = {}
+	var hit_positions: Dictionary = {}
+	var excludes: Array[RID] = [hero.get_rid()]
+	if is_instance_valid(car_driven):
+		excludes.append(car_driven.get_rid())
+	Fx.flash(self, origin, 1.6 if gun_id == "Shotgun" else 1.0, aim)
+	for pellet in range(pellet_count):
+		var rad := deg_to_rad(angular_spread)
+		var r := sqrt(randf()) * rad
+		var theta := randf() * TAU
+		var spread_dir := aim.rotated(Vector3.UP, cos(theta) * r)
+		var lateral := spread_dir.cross(Vector3.UP).normalized()
+		if lateral.length_squared() > 0.1:
+			spread_dir = spread_dir.rotated(lateral, sin(theta) * r)
+		spread_dir = spread_dir.normalized()
+		var to := origin + spread_dir * float(gun["range"])
+		var ray := PhysicsRayQueryParameters3D.create(origin, to)
+		ray.exclude = excludes
+		var collision := get_world_3d().direct_space_state.intersect_ray(ray)
+		var endpoint := to
+		if not collision.is_empty():
+			endpoint = collision["position"]
+			var collider: Object = collision["collider"]
+			if collider is PocketActor and not (collider as PocketActor).dead:
+				total_hits[collider] = float(total_hits.get(collider, 0.0)) + float(gun["damage"]) / float(pellet_count)
+				hit_positions[collider] = endpoint
+			elif pellet < 3:
+				Fx.impact(self, endpoint, Color("#f9c884"))
+		if pellet_count == 1 or pellet % 2 == 0:
+			Fx.tracer(self, origin, endpoint, 0.022 if gun_id == "Sniper" else 0.034, Color("#ffd16b"), 0.10 if gun_id == "Sniper" else 0.065)
+	for actor in total_hits:
+		if is_instance_valid(actor):
+			(actor as PocketActor).hit(float(total_hits[actor]))
+	if wanted == 0 and not indoors:
 		add_wanted(1)
 
 
-func add_tracer(start: Vector3, finish: Vector3) -> void:
-	var span := finish - start
-	if span.length_squared() < 0.02:
-		return
-	var bullet := MeshInstance3D.new()
-	var cylinder := CylinderMesh.new()
-	cylinder.top_radius = 0.025
-	cylinder.bottom_radius = 0.025
-	cylinder.height = span.length()
-	bullet.mesh = cylinder
-	bullet.material_override = Shapes.material(Color("#ffcd63"))
-	bullet.position = (start + finish) * 0.5
-	bullet.quaternion = Quaternion(Vector3.UP, span.normalized())
-	add_child(bullet)
-	get_tree().create_timer(0.065).timeout.connect(func() -> void:
-		if is_instance_valid(bullet):
-			bullet.queue_free()
-	)
+func on_hero_damaged(points: float) -> void:
+	Fx.impact(self, hero.global_position + Vector3(0.0, 1.45, 0.0), Color("#ff7371"), points)
+	if is_instance_valid(hurt_overlay):
+		hurt_overlay.color = Color(0.83, 0.09, 0.08, 0.27)
+		var fading := create_tween()
+		fading.tween_property(hurt_overlay, "color:a", 0.0, 0.46)
 
+
+func on_hero_died() -> void:
+	if death_pending:
+		return
+	death_pending = true
+	if is_instance_valid(car_driven):
+		exit_car()
+	get_tree().create_timer(2.5).timeout.connect(func() -> void:
+		if is_inside_tree():
+			busted()
+		death_pending = false
+	)
 
 func on_actor_injured(actor: PocketActor) -> void:
 	if not actor.has_meta("crime_recorded"):
@@ -283,6 +351,8 @@ func add_wanted(levels: int) -> void:
 
 
 func busted() -> void:
+	if indoors:
+		leave_interior()
 	if car_driven != null:
 		exit_car()
 	hero.position = Vector3(18.0, 0.35, -34.0)
@@ -304,9 +374,12 @@ func selected_gun() -> Dictionary:
 func next_weapon() -> void:
 	current_weapon = (current_weapon + 1) % owned_weapons.size()
 	shoot_clock = 0.0
+	hero.equip_weapon(String(selected_gun()["id"]))
 
 
 func interaction() -> void:
+	if hero.dead or carjack_busy:
+		return
 	if shop_panel.visible:
 		close_shop()
 		return
@@ -333,14 +406,32 @@ func interaction() -> void:
 
 
 func enter_car(car: PocketVehicle) -> void:
-	car_driven = car
-	car.occupied = true
-	car.drive_speed = car.npc_speed
-	hero.visible = false
-	var body := hero.get_node("CollisionShape3D") as CollisionShape3D
-	body.set_deferred("disabled", true)
-	add_wanted(1)
-
+	if carjack_busy or car.occupied or car.being_stolen:
+		return
+	carjack_busy = true
+	car.being_stolen = true
+	car.open_driver_door(true)
+	hero.start_carjack()
+	var destination := car.entrance_point()
+	hero.face_direction(-car.global_transform.basis.x, 1.0)
+	var tween := create_tween()
+	tween.tween_property(hero, "global_position", Vector3(destination.x, 0.35, destination.z), 0.42).set_trans(Tween.TRANS_SINE)
+	tween.tween_interval(0.36)
+	tween.tween_callback(func() -> void:
+		if not is_instance_valid(car) or not is_instance_valid(hero):
+			carjack_busy = false
+			return
+		car_driven = car
+		car.occupied = true
+		car.being_stolen = false
+		car.open_driver_door(false)
+		hero.stop_carjack()
+		hero.visible = false
+		var collider := hero.get_node("CollisionShape3D") as CollisionShape3D
+		collider.set_deferred("disabled", true)
+		carjack_busy = false
+		add_wanted(1)
+	)
 
 func exit_car() -> void:
 	if car_driven == null:
@@ -475,23 +566,38 @@ func _input(event: InputEvent) -> void:
 		elif event.keycode == KEY_R:
 			sprint_enabled = not sprint_enabled
 	if event is InputEventScreenTouch:
-		if event.pressed and stick_pointer == -1 and (event.position - stick_center).length() < 145.0 and not on_action_button(event.position):
-			stick_pointer = event.index
+		if event.pressed and not on_action_button(event.position) and not shop_panel.visible:
+			if stick_pointer == -1 and (event.position - stick_center).length() < 145.0:
+				stick_pointer = event.index
+				update_stick(event.position)
+			elif camera_touch == -1 and event.position.y < ui.size.y - 490.0:
+				camera_touch = event.index
+		elif not event.pressed:
+			if event.index == stick_pointer:
+				stick_pointer = -1
+				update_stick(stick_center)
+			if event.index == camera_touch:
+				camera_touch = -1
+	if event is InputEventScreenDrag:
+		if event.index == stick_pointer:
 			update_stick(event.position)
-		elif not event.pressed and event.index == stick_pointer:
-			stick_pointer = -1
-			update_stick(stick_center)
-	if event is InputEventScreenDrag and event.index == stick_pointer:
-		update_stick(event.position)
-	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
-		if event.pressed and (event.position - stick_center).length() < 145.0 and not on_action_button(event.position):
-			mouse_stick = true
+		elif event.index == camera_touch:
+			rotate_camera(event.relative)
+	if event is InputEventMouseButton:
+		if event.button_index == MOUSE_BUTTON_RIGHT:
+			camera_mouse = event.pressed
+		elif event.button_index == MOUSE_BUTTON_LEFT:
+			if event.pressed and (event.position - stick_center).length() < 145.0 and not on_action_button(event.position):
+				mouse_stick = true
+				update_stick(event.position)
+			elif not event.pressed and mouse_stick:
+				mouse_stick = false
+				update_stick(stick_center)
+	if event is InputEventMouseMotion:
+		if mouse_stick:
 			update_stick(event.position)
-		elif not event.pressed and mouse_stick:
-			mouse_stick = false
-			update_stick(stick_center)
-	if event is InputEventMouseMotion and mouse_stick:
-		update_stick(event.position)
+		elif camera_mouse:
+			rotate_camera(event.relative)
 
 
 func on_action_button(point: Vector2) -> bool:
@@ -517,8 +623,12 @@ func update_hud() -> void:
 	var waypoint := mission_point - current_position
 	var heading := waypoint_arrow(waypoint)
 	mission_label.text = "DELIVERY %s %dm  •  %s  [%d]" % [heading, int(waypoint.length()), "PICKUP" if mission_stage == 0 else "DROP OFF", deliveries]
-	var caption := "DRAG TO MOVE  •  ACTION TO INTERACT"
-	if indoors:
+	var caption := "MOVE: PAD  •  CAMERA: SWIPE SCENE  •  ACTION"
+	if hero.dead:
+		caption = "WASTED  •  RESPAWNING"
+	elif carjack_busy:
+		caption = "TAKING VEHICLE..."
+	elif indoors:
 		caption = "ACTION: EXIT" if interior.exit_near(hero.global_position) else "RETURN TO THE EXIT MARKER"
 	elif car_driven != null:
 		caption = "ACTION: EXIT CAR  •  STICK TO DRIVE"
@@ -546,6 +656,10 @@ func setup_ui() -> void:
 	ui = Control.new()
 	ui.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	layer.add_child(ui)
+	hurt_overlay = ColorRect.new()
+	hurt_overlay.color = Color(0.8, 0.12, 0.10, 0.0)
+	hurt_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ui.add_child(hurt_overlay)
 	var banner := Panel.new()
 	banner.name = "Banner"
 	banner.add_theme_stylebox_override("panel", style(Color(0.045, 0.09, 0.14, 0.91), 14))
@@ -686,6 +800,7 @@ func purchase_gun(gun_name: String) -> void:
 		if not already_owned:
 			owned_weapons.append(gun_name)
 			current_weapon = owned_weapons.size() - 1
+			hero.equip_weapon(gun_name)
 		ammunition[gun_name] = int(ammunition.get(gun_name, 0)) + int(gun["ammo"])
 		save_game()
 		refresh_shop_ui()
@@ -697,6 +812,8 @@ func layout_ui() -> void:
 		return
 	var screen := get_viewport().get_visible_rect().size
 	ui.size = screen
+	if is_instance_valid(hurt_overlay):
+		hurt_overlay.size = screen
 	var banner := ui.get_node("Banner") as Panel
 	banner.position = Vector2(12, 12)
 	banner.size = Vector2(screen.x - 24, 101)
