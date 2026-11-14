@@ -16,6 +16,7 @@ var door_hinge: Node3D
 var door_open: bool = false
 var door_angle: float = 0.0
 var brake_lights: Array[MeshInstance3D] = []
+var brake_light_on: bool = false
 
 
 func setup(p_axis: int, p_travel: float, p_lane: float, color: Color) -> void:
@@ -123,6 +124,9 @@ func _physics_process(delta: float) -> void:
 			position.z = -signf(position.z) * 120.0
 		elif axis == 1 and absf(position.x) > 121.0:
 			position.x = -signf(position.x) * 120.0
-	for item in brake_lights:
-		if is_instance_valid(item):
-			item.material_override = Shapes.material(Color("#ff4b50") if drive_speed < 1.0 else Color("#c92d4c"))
+	var should_brake := drive_speed < 1.0
+	if should_brake != brake_light_on:
+		brake_light_on = should_brake
+		for item in brake_lights:
+			if is_instance_valid(item):
+				item.material_override = Shapes.material(Color("#ff4b50") if should_brake else Color("#c92d4c"))
