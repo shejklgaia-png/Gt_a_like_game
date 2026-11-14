@@ -4,6 +4,8 @@ class_name PocketCity
 const Shapes = preload("res://scripts/shape_factory.gd")
 const VehicleScene = preload("res://scripts/vehicle.gd")
 const ActorScene = preload("res://scripts/actor.gd")
+const UrbanAssets = preload("res://scripts/urban_assets.gd")
+const TrafficLights = preload("res://scripts/traffic_light_visuals.gd")
 var buildings: Array[Dictionary] = []
 var cars: Array[PocketVehicle] = []
 var people: Array[PocketActor] = []
@@ -41,6 +43,10 @@ func build_city() -> void:
 	spawn_traffic()
 	spawn_civilians()
 	add_street_props()
+	UrbanAssets.install(self)
+	var lights := TrafficLights.new()
+	lights.name = "TrafficLights"
+	add_child(lights)
 
 
 func add_crosswalks() -> void:
@@ -185,3 +191,23 @@ func closest_car(at: Vector3, distance_max: float = 4.5) -> PocketVehicle:
 			found = car
 			best = dist
 	return found
+
+func replenish_pedestrians() -> Array[PocketActor]:
+	var newcomers: Array[PocketActor] = []
+	for index in range(people.size()):
+		if is_instance_valid(people[index]):
+			continue
+		var axis := index % 2
+		var road := float(rng.randi_range(-3, 3)) * 36.0
+		var block := float(rng.randi_range(-3, 2)) * 36.0
+		var along := block + rng.randf_range(10.0, 25.0)
+		var person: PocketActor = ActorScene.new()
+		if axis == 0:
+			person.position = Vector3(road + 6.35, 0.13, along)
+		else:
+			person.position = Vector3(along, 0.13, road + 6.35)
+		person.setup(false, person.position, rng.randi(), axis)
+		person_root.add_child(person)
+		people[index] = person
+		newcomers.append(person)
+	return newcomers
