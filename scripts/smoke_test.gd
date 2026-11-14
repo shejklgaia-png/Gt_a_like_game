@@ -110,12 +110,14 @@ func run_smoke() -> void:
 	hero.global_position = Vector3(4.15, 0.20, 16.0)
 	hero.velocity = Vector3.ZERO
 	game.camera_yaw = 0.0
+	game.camera.global_position = hero.global_position + Vector3(0.0, 7.0, 5.0)
+	game.camera.look_at(hero.global_position + Vector3(0.0, 1.0, 0.0))
 	game.stick_value = Vector2(1.0, 0.0)
 	for frame in range(36):
 		await physics_frame
 	game.stick_value = Vector2.ZERO
 	if hero.global_position.x < 5.5:
-		push_error("Player cannot cross from roadway onto sidewalk; x=%s" % hero.global_position.x)
+		push_error("Player cannot cross roadway to sidewalk: pos=%s, velocity=%s, camera_right=%s, slide=%d" % [str(hero.global_position), str(hero.velocity), str(game.camera.global_transform.basis.x), hero.get_slide_collision_count()])
 		quit(16)
 		return
 	# A stopped pedestrian must be able to reroute instead of standing forever.
