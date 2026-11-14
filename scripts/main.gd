@@ -261,10 +261,13 @@ func update_camera(delta: float) -> void:
 	var elevation := 0.95 if car_driven == null else 1.55
 	var look_at_position := focus + Vector3(0.0, elevation, 0.0)
 	var arm_distance := camera_distance * (1.17 if car_driven != null else 1.0)
+	if zoom_enabled:
+		arm_distance *= 0.72
 	var horizontal := cos(camera_pitch) * arm_distance
 	var offset := Vector3(sin(camera_yaw) * horizontal, sin(camera_pitch) * arm_distance, cos(camera_yaw) * horizontal)
 	var requested := look_at_position + offset
 	var params := PhysicsRayQueryParameters3D.create(look_at_position, requested)
+	params.collision_mask = 1 # Keep NPCs out of the camera obstruction test.
 	params.exclude = [hero.get_rid()]
 	if is_instance_valid(car_driven):
 		params.exclude.append(car_driven.get_rid())
@@ -417,6 +420,7 @@ func finish_reload() -> void:
 	reload_weapon_id = ""
 
 func on_hero_damaged(points: float) -> void:
+	sound.play("hurt", hero.global_position, -8.0)
 	Fx.impact(self, hero.global_position + Vector3(0.0, 1.45, 0.0), Color("#ff7371"), points)
 	if is_instance_valid(hurt_overlay):
 		hurt_overlay.color = Color(0.83, 0.09, 0.08, 0.27)
@@ -430,6 +434,7 @@ func on_hero_died() -> void:
 	death_pending = true
 	if is_instance_valid(car_driven):
 		exit_car()
+	sound.play("death", hero.global_position, -2.0)
 	get_tree().create_timer(2.5).timeout.connect(func() -> void:
 		if is_inside_tree():
 			busted()
@@ -525,6 +530,7 @@ func enter_car(car: PocketVehicle) -> void:
 	carjack_busy = true
 	car.being_stolen = true
 	car.open_driver_door(true)
+	sound.play("car_door", car.global_position)
 	hero.start_carjack()
 	var destination := car.entrance_point()
 	hero.face_direction(-car.global_transform.basis.x, 1.0)
@@ -539,6 +545,7 @@ func enter_car(car: PocketVehicle) -> void:
 		car.occupied = true
 		car.being_stolen = false
 		car.open_driver_door(false)
+		sound.play("car_door", car.global_position)
 		hero.stop_carjack()
 		hero.visible = false
 		var collider := hero.get_node("CollisionShape3D") as CollisionShape3D
@@ -551,10 +558,28 @@ func exit_car() -> void:
 	if car_driven == null:
 		return
 	var leave_at := car_driven.global_position + car_driven.global_transform.basis.x * 3.1
+	# Test two doors and behind the car; do not place the player inside a building.
+	var options := [
+		leave_at,
+		car_driven.global_position - car_driven.global_transform.basis.x * 3.1,
+		car_driven.global_position + car_driven.global_transform.basis.z * 4.1
+	]
+	for option in options:
+		var sphere := SphereShape3D.new()
+		sphere.radius = 0.62
+		var query := PhysicsShapeQueryParameters3D.new()
+		query.shape = sphere
+		query.transform = Transform3D(Basis.IDENTITY, Vector3(option.x, 0.9, option.z))
+		query.collision_mask = 1
+		var hit := get_world_3d().direct_space_state.intersect_shape(query, 1)
+		if hit.is_empty():
+			leave_at = option
+			break
 	hero.global_position = Vector3(leave_at.x, 0.45, leave_at.z)
 	hero.visible = true
 	var body := hero.get_node("CollisionShape3D") as CollisionShape3D
 	body.set_deferred("disabled", false)
+	sound.play("car_door", car_driven.global_position, -8.0)
 	car_driven.occupied = false
 	car_driven.drive_input = Vector2.ZERO
 	car_driven.nitro = false
@@ -709,7 +734,13 @@ func _input(event: InputEvent) -> void:
 		elif event.keycode == KEY_Q or event.keycode == KEY_TAB:
 			next_weapon()
 		elif event.keycode == KEY_R:
+			reload_gun()
+		elif event.keycode == KEY_C:
 			sprint_enabled = not sprint_enabled
+		elif event.keycode == KEY_M and minimap != null:
+			minimap.visible = not minimap.visible
+		elif event.keycode == KEY_P:
+			toggle_settings()
 	if event is InputEventScreenTouch:
 		if event.pressed and not on_action_button(event.position) and not shop_panel.visible:
 			if stick_pointer == -1 and (event.position - stick_center).length() < 145.0:
@@ -746,7 +777,7 @@ func _input(event: InputEvent) -> void:
 
 
 func on_action_button(point: Vector2) -> bool:
-	for button in [fire_button, action_button, run_button, weapon_button]:
+	for button in [fire_button, action_button, run_button, weapon_button, reload_button, aim_button, pause_button]:
 		if button != null and button.get_global_rect().has_point(point):
 			return true
 	return false
@@ -763,11 +794,15 @@ func update_hud() -> void:
 		return
 	status_label.text = "HP %03d    $%d    %s" % [ceili(hero.hp), cash, "★".repeat(wanted) + "☆".repeat(5 - wanted)]
 	var gun := selected_gun()
-	weapon_label.text = "%s   %d ROUNDS" % [gun["id"], int(ammunition.get(gun["id"], 0))]
+	var gun_id: String = gun["id"]
+	var active_mag := int(loaded_rounds.get(gun_id, 0))
+	var reserve := int(ammunition.get(gun_id, 0))
+	var suffix := ("  RELOADING %.1fs" % reload_clock) if reload_weapon_id != "" else ""
+	weapon_label.text = "%s  %d/%d  (+%d)%s" % [gun_id, active_mag, int(gun["magazine"]), reserve, suffix]
 	var current_position := car_driven.global_position if car_driven != null else hero.global_position
 	var waypoint := mission_point - current_position
 	var heading := waypoint_arrow(waypoint)
-	mission_label.text = "DELIVERY %s %dm  •  %s  [%d]" % [heading, int(waypoint.length()), "PICKUP" if mission_stage == 0 else "DROP OFF", deliveries]
+	mission_label.text = "DELIVERY %s %dm  •  %s [%d] %s" % [heading, int(waypoint.length()), "PICKUP" if mission_stage == 0 else "DROP OFF", deliveries, ("%.0fs" % mission_limit) if mission_stage == 1 else ""]
 	var caption := "MOVE: PAD  •  CAMERA: SWIPE SCENE  •  ACTION"
 	if hero.dead:
 		caption = "WASTED  •  RESPAWNING"
@@ -784,7 +819,7 @@ func update_hud() -> void:
 		caption = "ACTION: TAKE VEHICLE"
 	elif hero.global_position.distance_to(mission_point) < 5.2:
 		caption = "ACTION: COLLECT PARCEL" if mission_stage == 0 else "ACTION: DELIVER PARCEL"
-	hint_label.text = caption
+	hint_label.text = display_message if display_message_time > 0.0 else caption
 	run_button.text = "SPRINT ON" if sprint_enabled else "SPRINT"
 
 
@@ -800,6 +835,7 @@ func setup_ui() -> void:
 	add_child(layer)
 	ui = Control.new()
 	ui.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ui.process_mode = Node.PROCESS_MODE_ALWAYS
 	layer.add_child(ui)
 	hurt_overlay = ColorRect.new()
 	hurt_overlay.color = Color(0.8, 0.12, 0.10, 0.0)
@@ -836,14 +872,26 @@ func setup_ui() -> void:
 	action_button = make_button("ACTION", Color("#407d89"))
 	run_button = make_button("SPRINT", Color("#435e86"))
 	weapon_button = make_button("WEAPON", Color("#615a8d"))
+	reload_button = make_button("RELOAD", Color("#4e696e"))
+	aim_button = make_button("SCOPE", Color("#52636f"))
+	pause_button = make_button("II", Color("#3c5365"))
 	fire_button.button_down.connect(func() -> void: fire_held = true)
 	fire_button.button_up.connect(func() -> void: fire_held = false)
 	action_button.pressed.connect(interaction)
 	run_button.pressed.connect(func() -> void: sprint_enabled = not sprint_enabled)
 	weapon_button.pressed.connect(next_weapon)
-	for button in [fire_button, action_button, run_button, weapon_button]:
+	reload_button.pressed.connect(reload_gun)
+	aim_button.pressed.connect(toggle_scope)
+	pause_button.pressed.connect(toggle_settings)
+	for button in [fire_button, action_button, run_button, weapon_button, reload_button, aim_button, pause_button]:
 		ui.add_child(button)
+	minimap = MapScript.new()
+	minimap.game = self
+	ui.add_child(minimap)
+	perf_overlay = PerfScript.new()
+	ui.add_child(perf_overlay)
 	create_shop_ui()
+	create_settings_ui()
 
 
 func style(background: Color, radius: int) -> StyleBoxFlat:
@@ -893,8 +941,6 @@ func create_shop_ui() -> void:
 	tip.text = "SELECT A WEAPON TO PURCHASE OR RESTOCK"
 	content.add_child(tip)
 	for gun in WEAPONS:
-		if gun["id"] == "Handgun":
-			continue
 		var gun_name: String = gun["id"]
 		var button := make_button("", Color("#3c5365"))
 		button.custom_minimum_size = Vector2(0, 66)
@@ -945,7 +991,9 @@ func purchase_gun(gun_name: String) -> void:
 		if not already_owned:
 			owned_weapons.append(gun_name)
 			current_weapon = owned_weapons.size() - 1
+			loaded_rounds[gun_name] = int(gun["magazine"])
 			hero.equip_weapon(gun_name)
+		sound.play_ui("cash")
 		ammunition[gun_name] = int(ammunition.get(gun_name, 0)) + int(gun["ammo"])
 		save_game()
 		refresh_shop_ui()
@@ -979,7 +1027,18 @@ func layout_ui() -> void:
 	action_button.position = Vector2(screen.x - 142, screen.y - 402)
 	run_button.position = Vector2(screen.x - 292, screen.y - 486)
 	weapon_button.position = Vector2(screen.x - 292, screen.y - 402)
-	for button in [fire_button, action_button, run_button, weapon_button]:
+	for button in [fire_button, action_button, run_button, weapon_button, reload_button, aim_button]:
 		button.size = Vector2(128, 68)
+	reload_button.position = Vector2(screen.x - 142, screen.y - 568)
+	aim_button.position = Vector2(screen.x - 292, screen.y - 568)
+	aim_button.disabled = String(selected_gun()["id"]) != "Sniper"
+	pause_button.position = Vector2(screen.x - 70, 117)
+	pause_button.size = Vector2(58, 48)
+	minimap.position = Vector2(15, 195)
+	minimap.size = Vector2(minf(152, screen.x * 0.38), minf(152, screen.x * 0.38))
+	perf_overlay.position = Vector2(15, 172)
+	if settings_panel != null:
+		settings_panel.size = Vector2(minf(screen.x - 28, 420), 420)
+		settings_panel.position = (screen - settings_panel.size) * 0.5
 	shop_panel.size = Vector2(minf(screen.x - 30, 540), 510)
 	shop_panel.position = (screen - shop_panel.size) * 0.5
