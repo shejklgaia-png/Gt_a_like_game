@@ -1,8 +1,8 @@
 extends RefCounted
 const Shapes = preload("res://scripts/shape_factory.gd")
 
-## Street props occupy building-front furnishing pockets, not pedestrian or crossing lanes.
-## Pavement lanes run 6.35 m from each road center, i.e. 11.65 m from a lot center.
+## Street props occupy the side facades, near the middle of a block and away from crossings.
+## Pedestrian sidewalk centerlines run 11.65 m from each lot center on either axis.
 const SIDEWALK_LANE_DISTANCE := 11.65
 const ACTOR_CLEARANCE := 0.85
 
@@ -22,26 +22,26 @@ static func install(parent: Node3D, blocks: Array[Dictionary]) -> void:
 		for side in [-1, 1]:
 			var facing: float = float(side)
 			var kind := (building_index * 3 + (1 if side > 0 else 0)) % 4
-			var lateral := (-5.4 if side < 0 else 5.4)
-			var width_radius := 1.10 if kind == 1 else (0.35 if kind == 2 else 0.40)
-			if kind == 0:
-				width_radius = 0.25
-			var x := center.x + clampf(lateral, -half_width + width_radius + 0.45, half_width - width_radius - 0.45)
-			var z := center.z + facing * (half_depth + 0.72)
-			# The pedestrian lane must remain free for the full collision footprint.
+			var length_radius := 1.10 if kind == 1 else (0.35 if kind == 2 else 0.40)
+			var along_facade := clampf(-5.4 if side < 0 else 5.4, -half_depth + length_radius + 0.45, half_depth - length_radius - 0.45)
+			var x := center.x + facing * (half_width + 0.72)
+			var z := center.z + along_facade
+			# On this side facade, the sidewalk runs parallel to Z.
+			# Include the entire bench width and walking-lane lateral offsets.
 			var footprint_depth := 0.44 if kind == 1 else (0.38 if kind == 2 else 0.34)
-			var lane_clearance := SIDEWALK_LANE_DISTANCE - (half_depth + 0.72) - footprint_depth
+			var lane_clearance := SIDEWALK_LANE_DISTANCE - (half_width + 0.72) - footprint_depth
 			if lane_clearance < ACTOR_CLEARANCE:
 				continue
 			var anchor := Node3D.new()
-			anchor.name = "Prop_%02d_%s" % [building_index, "Back" if side > 0 else "Front"]
+			anchor.name = "Prop_%02d_%s" % [building_index, "Right" if side > 0 else "Left"]
 			anchor.position = Vector3(x, 0.05, z)
-			# Bench backrest faces the building, not into the crosswalk.
-			anchor.rotation.y = PI if side > 0 else 0.0
+			# Bench backrest faces the building wall; the long seat follows the facade.
+			anchor.rotation.y = -facing * PI * 0.5
 			anchor.set_meta("lot", String(block["id"]))
 			anchor.set_meta("kind", kind)
 			anchor.set_meta("pedestrian_lane_clearance", lane_clearance)
 			anchor.set_meta("building_frontage", true)
+			anchor.set_meta("side", side)
 			decor.add_child(anchor)
 			match kind:
 				0: make_tree(anchor, Vector3.ZERO, rng)
