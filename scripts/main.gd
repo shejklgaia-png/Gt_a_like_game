@@ -114,6 +114,9 @@ func connect_actor(actor: PocketActor) -> void:
 
 
 func _physics_process(delta: float) -> void:
+	shoot_clock = maxf(0.0, shoot_clock - delta)
+	if fire_held or Input.is_key_pressed(KEY_SPACE):
+		shoot()
 	if shop_panel != null and shop_panel.visible:
 		return
 	var motion := read_motion()
@@ -141,9 +144,6 @@ func _physics_process(delta: float) -> void:
 
 
 func _process(delta: float) -> void:
-	shoot_clock = maxf(0.0, shoot_clock - delta)
-	if fire_held or Input.is_key_pressed(KEY_SPACE):
-		shoot()
 	if wanted > 0 and not indoors:
 		wanted_idle += delta
 		police_clock += delta
