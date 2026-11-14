@@ -63,3 +63,9 @@ Saved data is stored by Godot under `user://pocket_district_save.json`. This fil
 ## Roadmap
 
 Streaming city chunks, navigation and traffic signals; shoot animations, gun recoil and muzzle effects; shop economy; interior object interactions; missions with waypoint arrows; touch sensitivity calibration; Android device profiling.
+
+## Android APK (automated)
+
+Push to `main` to start the **Build Android APK** GitHub Actions workflow. It runs an engine smoke test, creates an ARM64 debug-signed `PocketDistrict-debug.apk`, and attaches it to the run as an artifact. Successful builds from `main` also publish the APK in the [Pocket District Preview release](https://github.com/shejklgaia-png/Gt_a_like_game/releases/tag/pocket-district-preview).
+
+The build uses Godot 4.4.1 and includes the existing web export preset unchanged. Android packages are preview/debug signed and intended for manual installation, not Google Play distribution.
