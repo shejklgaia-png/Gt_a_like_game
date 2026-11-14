@@ -17,11 +17,11 @@ const SIDEWALK_COLOR := Color("#697480")
 
 func build_city() -> void:
 	rng.seed = 234894
-	Shapes.box(self, Vector3(0, -0.44, 0), Vector3(280, 0.7, 280), Color("#465958"), true)
+	Shapes.box(self, Vector3(0, -0.35, 0), Vector3(280, 0.7, 280), Color("#465958"), true)
 	for n in range(-3, 4):
 		var pos := float(n) * 36.0
-		Shapes.box(self, Vector3(pos, -0.015, 0), Vector3(10.0, 0.12, 246), ROAD_COLOR)
-		Shapes.box(self, Vector3(0, -0.012, pos), Vector3(246, 0.12, 10.0), ROAD_COLOR)
+		Shapes.box(self, Vector3(pos, 0.010, 0), Vector3(10.0, 0.02, 246), ROAD_COLOR)
+		Shapes.box(self, Vector3(0, 0.010, pos), Vector3(246, 0.02, 10.0), ROAD_COLOR)
 		for k in range(-12, 13):
 			Shapes.box(self, Vector3(pos, 0.056, k * 9.0), Vector3(0.13, 0.015, 3.5), Color("#aab2a0"))
 			Shapes.box(self, Vector3(k * 9.0, 0.058, pos), Vector3(3.5, 0.015, 0.13), Color("#aab2a0"))
@@ -82,11 +82,11 @@ func create_building(ix: int, iz: int) -> void:
 	var shop := ix == 0 and iz == -1
 	if shop:
 		height = 12.0
-	Shapes.box(self, Vector3(cx, 0.09, cz), Vector3(27, 0.24, 27), SIDEWALK_COLOR, true)
+	Shapes.box(self, Vector3(cx, 0.026, cz), Vector3(27, 0.04, 27), SIDEWALK_COLOR) # Flat decorative sidewalk; collision is the continuous ground plane.
 	var wall_color := Color.from_hsv(rng.randf_range(0.52, 0.68), rng.randf_range(0.12, 0.30), rng.randf_range(0.42, 0.75))
 	if shop:
 		wall_color = Color("#444d60")
-	Shapes.box(self, Vector3(cx, height * 0.5 + 0.22, cz), Vector3(width, height, depth), wall_color, true)
+	Shapes.box(self, Vector3(cx, height * 0.5 + 0.02, cz), Vector3(width, height, depth), wall_color, true)
 	Shapes.box(self, Vector3(cx, height + 0.31, cz), Vector3(width + 1.0, 0.35, depth + 1.0), wall_color.lightened(0.20))
 	var front_z := cz - depth / 2.0
 	var door := Vector3(cx, 0, front_z - 1.1)
