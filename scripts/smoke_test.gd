@@ -107,14 +107,14 @@ func run_smoke() -> void:
 			quit(15)
 			return
 	# Put the player at a roadway curb and walk toward the sidewalk while the game runs.
-	hero.global_position = Vector3(3.1, 0.20, 16.0)
+	hero.global_position = Vector3(4.15, 0.20, 16.0)
 	hero.velocity = Vector3.ZERO
 	game.camera_yaw = 0.0
 	game.stick_value = Vector2(1.0, 0.0)
 	for frame in range(36):
 		await physics_frame
 	game.stick_value = Vector2.ZERO
-	if hero.global_position.x < 5.1:
+	if hero.global_position.x < 5.5:
 		push_error("Player cannot cross from roadway onto sidewalk; x=%s" % hero.global_position.x)
 		quit(16)
 		return
