@@ -29,7 +29,29 @@ jobs:
         with:
           version: 4.3.0
           use-dotnet: false
-          include-templates: true
+          include-templates: false
+
+      - name: Cache Web export templates
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/godot/export_templates/4.3.stable
+          key: godot-4.3-web-templates-v1
+
+      - name: Ensure Web export templates are installed
+        run: |
+          set -euo pipefail
+          dir="$HOME/.local/share/godot/export_templates/4.3.stable"
+          if [ ! -s "$dir/web_nothreads_release.zip" ]; then
+            mkdir -p "$dir"
+            curl -fL --retry 3 --retry-delay 3 \
+              "https://github.com/godotengine/godot-builds/releases/download/4.3-stable/Godot_v4.3-stable_export_templates.tpz" \
+              -o /tmp/godot_export_templates.tpz
+            unzip -j /tmp/godot_export_templates.tpz \
+              "templates/web_nothreads_release.zip" \
+              "templates/web_nothreads_debug.zip" -d "$dir"
+            printf '4.3.stable\n' > "$dir/version.txt"
+          fi
+          test -s "$dir/web_nothreads_release.zip"
 
       - name: Import game resources
         run: godot --headless --path . --import
