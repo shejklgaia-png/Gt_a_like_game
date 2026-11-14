@@ -44,7 +44,14 @@ func build_city() -> void:
 
 
 func add_crosswalks() -> void:
-	# Zebra stripes exactly aligned with the two sidewalk lines at every intersection.
+	# One instanced mesh instead of 1176 individual MeshInstances for mobile GPUs.
+	var stripe_mesh := BoxMesh.new()
+	stripe_mesh.size = Vector3(2.0, 0.02, 0.6)
+	var batch := MultiMesh.new()
+	batch.transform_format = MultiMesh.TRANSFORM_3D
+	batch.mesh = stripe_mesh
+	batch.instance_count = 7 * 7 * 6 * 4
+	var index := 0
 	for ix in range(-3, 4):
 		for iz in range(-3, 4):
 			var x := float(ix) * 36.0
@@ -52,8 +59,17 @@ func add_crosswalks() -> void:
 			for stripe in range(6):
 				var offset := float(stripe) * 1.45 - 3.65
 				for side in [-1.0, 1.0]:
-					Shapes.box(self, Vector3(x + side * 6.35, 0.073, z + offset), Vector3(2.0, 0.02, 0.6), Color("#e7ebdc"))
-					Shapes.box(self, Vector3(x + offset, 0.074, z + side * 6.35), Vector3(0.6, 0.02, 2.0), Color("#e7ebdc"))
+					var pos_a := Vector3(x + side * 6.35, 0.073, z + offset)
+					batch.set_instance_transform(index, Transform3D(Basis.IDENTITY, pos_a))
+					index += 1
+					var pos_b := Vector3(x + offset, 0.074, z + side * 6.35)
+					batch.set_instance_transform(index, Transform3D(Basis(Vector3.UP, PI * 0.5), pos_b))
+					index += 1
+	var painted := MultiMeshInstance3D.new()
+	painted.name = "Crosswalks"
+	painted.multimesh = batch
+	painted.material_override = Shapes.material(Color("#e7ebdc"))
+	add_child(painted)
 
 
 func create_building(ix: int, iz: int) -> void:
