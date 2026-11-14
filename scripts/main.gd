@@ -187,7 +187,7 @@ func _physics_process(delta: float) -> void:
 			officer.engage = true
 			officer.chase_target = car_driven if car_driven != null else hero
 			var focus := car_driven.global_position if car_driven != null else hero.global_position
-			if officer.global_position.distance_to(focus) < 2.9:
+			if car_driven == null and officer.global_position.distance_to(focus) < 2.9:
 				officer.try_baton_attack(hero, 7.0 + float(wanted))
 			elif officer.global_position.distance_to(focus) > 95.0:
 				officer.queue_free()
