@@ -77,8 +77,8 @@ func create_building(ix: int, iz: int) -> void:
 	var cz := (float(iz) + 0.5) * 36.0
 	var tall := rng.randi_range(11, 32)
 	var height := float(tall)
-	var width := rng.randf_range(20.0, 24.0)
-	var depth := rng.randf_range(19.0, 24.0)
+	var width := rng.randf_range(18.5, 20.0)
+	var depth := rng.randf_range(18.5, 20.0)
 	var shop := ix == 0 and iz == -1
 	if shop:
 		height = 12.0
