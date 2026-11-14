@@ -1098,34 +1098,43 @@ func layout_ui() -> void:
 	status_label.size = Vector2(screen.x - 36, 32)
 	weapon_label.position = Vector2(24, 61)
 	weapon_label.size = Vector2(screen.x - 36, 32)
-	mission_label.position = Vector2(21, 136)
-	mission_label.size = Vector2(screen.x - 36, 32)
-	hint_label.position = Vector2(10, screen.y - 74)
-	hint_label.size = Vector2(screen.x - 20, 54)
-	stick_center = Vector2(screen.x * 0.73, screen.y - 185)
+	mission_label.position = Vector2(20, 121)
+	mission_label.size = Vector2(screen.x - 102, 35)
+	hint_label.position = Vector2(10, screen.y - 75)
+	hint_label.size = Vector2(screen.x - 20, 55)
+	stick_center = Vector2(screen.x * 0.73, screen.y - 115)
 	stick_outer.position = stick_center - Vector2(100, 100)
 	stick_outer.size = Vector2(200, 200)
 	stick_knob.size = Vector2(82, 82)
 	update_stick(stick_center)
-	fire_button.position = Vector2(screen.x - 142, screen.y - 486)
-	action_button.position = Vector2(screen.x - 142, screen.y - 402)
-	run_button.position = Vector2(screen.x - 292, screen.y - 486)
-	weapon_button.position = Vector2(screen.x - 292, screen.y - 402)
-	for button in [fire_button, action_button, run_button, weapon_button, reload_button, aim_button]:
-		button.size = Vector2(128, 68)
-	reload_button.position = Vector2(screen.x - 142, screen.y - 568)
-	aim_button.position = Vector2(screen.x - 292, screen.y - 568)
+	# Two rows of three buttons remain above the stick on a narrow 360px phone.
+	var side := minf(128.0, (screen.x - 40.0) / 3.0)
+	var gap := 8.0
+	var group_left := screen.x - (side * 3.0 + gap * 2.0) - 12.0
+	var top := screen.y - 393.0
+	var bottom := screen.y - 317.0
+	for entry in [
+		{"button": weapon_button, "column": 0, "row": top},
+		{"button": reload_button, "column": 1, "row": top},
+		{"button": aim_button, "column": 2, "row": top},
+		{"button": run_button, "column": 0, "row": bottom},
+		{"button": action_button, "column": 1, "row": bottom},
+		{"button": fire_button, "column": 2, "row": bottom}
+	]:
+		var button: Button = entry["button"]
+		button.position = Vector2(group_left + float(entry["column"]) * (side + gap), float(entry["row"]))
+		button.size = Vector2(side, 68)
 	aim_button.disabled = String(selected_gun()["id"]) != "Sniper"
 	if aim_button.disabled:
 		zoom_enabled = false
 		camera.fov = 69.0
-	pause_button.position = Vector2(screen.x - 70, 117)
-	pause_button.size = Vector2(58, 48)
-	minimap.position = Vector2(15, 195)
-	minimap.size = Vector2(minf(152, screen.x * 0.38), minf(152, screen.x * 0.38))
-	perf_overlay.position = Vector2(15, 172)
+	pause_button.position = Vector2(screen.x - 70, 116)
+	pause_button.size = Vector2(57, 43)
+	minimap.position = Vector2(14, 158)
+	minimap.size = Vector2(minf(94, screen.x * 0.26), minf(94, screen.x * 0.26))
+	perf_overlay.position = Vector2(15, 145)
 	if settings_panel != null:
-		settings_panel.size = Vector2(minf(screen.x - 28, 420), 420)
+		settings_panel.size = Vector2(minf(screen.x - 28, 420), minf(screen.y - 65, 420))
 		settings_panel.position = (screen - settings_panel.size) * 0.5
 	shop_panel.size = Vector2(minf(screen.x - 30, 540), minf(screen.y - 55, 620))
 	shop_panel.position = (screen - shop_panel.size) * 0.5
