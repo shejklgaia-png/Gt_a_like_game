@@ -39,6 +39,7 @@ var mission_point := Vector3.ZERO
 var mission_marker: Node3D
 var mission_marker_label: Label3D
 var deliveries: int = 0
+var autosave_clock: float = 0.0
 
 var ui: Control
 var status_label: Label
@@ -144,6 +145,10 @@ func _physics_process(delta: float) -> void:
 
 
 func _process(delta: float) -> void:
+	autosave_clock += delta
+	if autosave_clock > 20.0:
+		autosave_clock = 0.0
+		save_game()
 	if wanted > 0 and not indoors:
 		wanted_idle += delta
 		police_clock += delta
@@ -508,7 +513,10 @@ func update_hud() -> void:
 	status_label.text = "HP %03d    $%d    %s" % [ceili(hero.hp), cash, "★".repeat(wanted) + "☆".repeat(5 - wanted)]
 	var gun := selected_gun()
 	weapon_label.text = "%s   %d ROUNDS" % [gun["id"], int(ammunition.get(gun["id"], 0))]
-	mission_label.text = "DELIVERY  •  %s    [%d completed]" % ["COLLECT PACKAGE" if mission_stage == 0 else "TAKE PACKAGE TO MARKER", deliveries]
+	var current_position := car_driven.global_position if car_driven != null else hero.global_position
+	var waypoint := mission_point - current_position
+	var heading := waypoint_arrow(waypoint)
+	mission_label.text = "DELIVERY %s %dm  •  %s  [%d]" % [heading, int(waypoint.length()), "PICKUP" if mission_stage == 0 else "DROP OFF", deliveries]
 	var caption := "DRAG TO MOVE  •  ACTION TO INTERACT"
 	if indoors:
 		caption = "ACTION: EXIT" if interior.exit_near(hero.global_position) else "RETURN TO THE EXIT MARKER"
@@ -523,6 +531,13 @@ func update_hud() -> void:
 		caption = "ACTION: COLLECT PARCEL" if mission_stage == 0 else "ACTION: DELIVER PARCEL"
 	hint_label.text = caption
 	run_button.text = "SPRINT ON" if sprint_enabled else "SPRINT"
+
+
+func waypoint_arrow(delta_to_goal: Vector3) -> String:
+	var angle := atan2(delta_to_goal.z, delta_to_goal.x)
+	var index := posmodi(int(round(angle / (PI / 4.0))), 8)
+	var symbols := ["→", "↘", "↓", "↙", "←", "↖", "↑", "↗"]
+	return symbols[index]
 
 
 func setup_ui() -> void:
