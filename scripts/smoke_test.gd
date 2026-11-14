@@ -5,7 +5,7 @@ func _initialize() -> void:
 
 
 func run_smoke() -> void:
-	var scene: PackedScene = load("res://scenes/main.tscn")
+	var scene := load("res://scenes/main.tscn") as PackedScene
 	if scene == null:
 		push_error("Failed to load starting scene")
 		quit(1)
