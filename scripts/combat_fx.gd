@@ -1,10 +1,12 @@
 extends RefCounted
 const Shapes = preload("res://scripts/shape_factory.gd")
 
-static func flash(parent: Node3D, at: Vector3, intensity: float = 1.0) -> void:
+static func flash(parent: Node3D, at: Vector3, intensity: float = 1.0, direction: Vector3 = Vector3.FORWARD) -> void:
 	var sparks := Node3D.new()
 	sparks.position = at
 	parent.add_child(sparks)
+	if direction.length_squared() > 0.01:
+		sparks.quaternion = Quaternion(Vector3.FORWARD, direction.normalized())
 	Shapes.ball(sparks, Vector3.ZERO, 0.12 * intensity, Color("#fff5bc"))
 	Shapes.box(sparks, Vector3(0.0, 0.0, -0.13 * intensity), Vector3(0.13, 0.13, 0.48 * intensity), Color("#ffac43"))
 	for i in range(4):
