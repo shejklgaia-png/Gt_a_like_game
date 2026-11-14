@@ -153,14 +153,25 @@ func connect_actor(actor: PocketActor) -> void:
 
 func _physics_process(delta: float) -> void:
 	shoot_clock = maxf(0.0, shoot_clock - delta)
-	if fire_held or Input.is_key_pressed(KEY_SPACE):
+	reload_clock = maxf(0.0, reload_clock - delta)
+	if reload_weapon_id != "" and reload_clock <= 0.0:
+		finish_reload()
+	var pressed := fire_held or Input.is_key_pressed(KEY_SPACE)
+	var gun := selected_gun()
+	if pressed and (bool(gun["auto"]) or not fire_latched):
 		shoot()
+	fire_latched = pressed
 	if shop_panel != null and shop_panel.visible:
 		return
 	var motion := read_motion()
 	if not carjack_busy and not hero.dead:
 		if indoors or car_driven == null:
 			hero.walk(motion, sprint_enabled or Input.is_key_pressed(KEY_SHIFT), camera, delta)
+			if motion.length() > 0.15:
+				last_footstep += delta
+				if last_footstep > (0.30 if sprint_enabled else 0.43):
+					last_footstep = 0.0
+					sound.play("footstep", hero.global_position, -17.0, randf_range(0.9, 1.1))
 		else:
 			car_driven.drive_input = motion
 			car_driven.nitro = sprint_enabled or Input.is_key_pressed(KEY_SHIFT)
@@ -179,9 +190,12 @@ func _physics_process(delta: float) -> void:
 				officer.queue_free()
 	update_camera(delta)
 
+
 func _process(delta: float) -> void:
+	if hero == null:
+		return
 	autosave_clock += delta
-	if autosave_clock > 20.0:
+	if autosave_clock > 18.0:
 		autosave_clock = 0.0
 		save_game()
 	if wanted > 0 and not indoors:
@@ -194,12 +208,35 @@ func _process(delta: float) -> void:
 				var at := car_driven.global_position if car_driven != null else hero.global_position
 				var officer := city.add_police_near(at, randi())
 				connect_actor(officer)
+				sound.play("police", officer.global_position, -12.0)
 		if wanted_idle > 32.0:
 			wanted -= 1
 			wanted_idle = 0.0
+			if wanted == 0:
+				wanted_cleanup_clock = 0.0
+	elif wanted == 0:
+		wanted_cleanup_clock += delta
+		if wanted_cleanup_clock > 2.0:
+			wanted_cleanup_clock = 0.0
+			for cop in city.police_root.get_children():
+				if is_instance_valid(cop):
+					cop.queue_free()
+	if mission_stage == 1 and mission_limit > 0.0 and not hero.dead:
+		mission_limit -= delta
+		if mission_limit <= 0.0:
+			mission_stage = 0
+			mission_failures += 1
+			mission_limit = 0.0
+			mission_point = GameData.delivery_sites()[7]
+			show_message("DELIVERY FAILED")
+			refresh_mission_marker()
+			save_game()
+	display_message_time = maxf(0.0, display_message_time - delta)
 	animate_marker(delta)
-	update_hud()
-
+	hud_update_clock += delta
+	if hud_update_clock > 0.11:
+		hud_update_clock = 0.0
+		update_hud()
 
 func read_motion() -> Vector2:
 	var vector := stick_value
