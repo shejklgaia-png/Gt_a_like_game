@@ -288,14 +288,15 @@ func rotate_camera(relative: Vector2) -> void:
 
 
 func shoot() -> void:
-	if hero.dead or carjack_busy or shoot_clock > 0.0 or (shop_panel != null and shop_panel.visible):
+	if hero.dead or carjack_busy or shoot_clock > 0.0 or reload_weapon_id != "" or (shop_panel != null and shop_panel.visible):
 		return
 	var gun := selected_gun()
 	var gun_id: String = gun["id"]
-	if int(ammunition.get(gun_id, 0)) <= 0:
+	if int(loaded_rounds.get(gun_id, 0)) <= 0:
+		reload_gun()
 		return
 	shoot_clock = float(gun["rate"])
-	ammunition[gun_id] = int(ammunition.get(gun_id, 0)) - 1
+	loaded_rounds[gun_id] = int(loaded_rounds.get(gun_id, 0)) - 1
 	var forward := -camera.global_transform.basis.z
 	forward.y = 0.0
 	forward = forward.normalized()
@@ -310,42 +311,37 @@ func shoot() -> void:
 		origin = hero.muzzle.global_position
 	var aim := forward
 	var best_rank := INF
-	var cone_angle := deg_to_rad(4.0 if gun_id == "Sniper" else 12.0)
+	var cone_angle := deg_to_rad(2.0 if gun_id == "Sniper" else 10.0)
+	var excludes: Array[RID] = [hero.get_rid()]
+	if is_instance_valid(car_driven):
+		excludes.append(car_driven.get_rid())
 	var actors: Array[Node] = city.person_root.get_children() + city.police_root.get_children() if not indoors else []
 	for item in actors:
 		var candidate := item as PocketActor
 		if not is_instance_valid(candidate) or candidate.dead:
 			continue
-		var toward := candidate.global_position + Vector3(0, 1.05, 0) - origin
+		var toward := candidate.global_position + Vector3(0, 1.10, 0) - origin
 		var dist := toward.length()
-		if dist > float(gun["range"]) or dist < 0.5:
+		if dist < 0.5 or dist > float(gun["range"]):
 			continue
 		var alignment := forward.dot(toward.normalized())
 		if alignment <= cos(cone_angle):
+			continue
+		var los := PhysicsRayQueryParameters3D.create(origin, candidate.global_position + Vector3(0, 1.0, 0))
+		los.exclude = excludes
+		var first := get_world_3d().direct_space_state.intersect_ray(los)
+		if first.is_empty() or first.get("collider") != candidate:
 			continue
 		var rank := dist * (1.0 + (1.0 - alignment) * 10.0)
 		if rank < best_rank:
 			best_rank = rank
 			aim = toward.normalized()
-	var pellet_count := 8 if gun_id == "Shotgun" else 1
-	var angular_spread := 2.0
-	match gun_id:
-		"Handgun":
-			angular_spread = 1.9
-		"Rifle":
-			angular_spread = 1.0
-		"Shotgun":
-			angular_spread = 7.0
-		"Sniper":
-			angular_spread = 0.18
-		"Machine Gun":
-			angular_spread = 3.1
+	var pellet_count: int = int(gun["pellets"])
+	var angular_spread: float = float(gun["spread"])
 	var total_hits: Dictionary = {}
-	var hit_positions: Dictionary = {}
-	var excludes: Array[RID] = [hero.get_rid()]
-	if is_instance_valid(car_driven):
-		excludes.append(car_driven.get_rid())
-	Fx.flash(self, origin, 1.6 if gun_id == "Shotgun" else 1.0, aim)
+	var victim_distance: Dictionary = {}
+	Fx.flash(self, origin, 1.65 if gun_id == "Shotgun" else 1.0, aim)
+	sound.play(gun_id, origin, -4.0)
 	for pellet in range(pellet_count):
 		var rad := deg_to_rad(angular_spread)
 		var r := sqrt(randf()) * rad
@@ -358,24 +354,67 @@ func shoot() -> void:
 		var to := origin + spread_dir * float(gun["range"])
 		var ray := PhysicsRayQueryParameters3D.create(origin, to)
 		ray.exclude = excludes
+		ray.collision_mask = 11 # World, people and vehicles.
 		var collision := get_world_3d().direct_space_state.intersect_ray(ray)
 		var endpoint := to
 		if not collision.is_empty():
 			endpoint = collision["position"]
 			var collider: Object = collision["collider"]
 			if collider is PocketActor and not (collider as PocketActor).dead:
-				total_hits[collider] = float(total_hits.get(collider, 0.0)) + float(gun["damage"]) / float(pellet_count)
-				hit_positions[collider] = endpoint
+				var actor := collider as PocketActor
+				var part_bonus := 1.65 if endpoint.y > actor.global_position.y + 1.5 else (0.75 if endpoint.y < actor.global_position.y + 0.65 else 1.0)
+				total_hits[actor] = float(total_hits.get(actor, 0.0)) + float(gun["damage"]) / float(pellet_count) * part_bonus
+				victim_distance[actor] = origin.distance_to(endpoint)
+			elif collider is PocketVehicle:
+				(collider as PocketVehicle).hit(float(gun["damage"]) / float(pellet_count))
+				Fx.impact(self, endpoint, Color("#ffd9a2"))
 			elif pellet < 3:
 				Fx.impact(self, endpoint, Color("#f9c884"))
 		if pellet_count == 1 or pellet % 2 == 0:
 			Fx.tracer(self, origin, endpoint, 0.022 if gun_id == "Sniper" else 0.034, Color("#ffd16b"), 0.10 if gun_id == "Sniper" else 0.065)
 	for actor in total_hits:
 		if is_instance_valid(actor):
-			(actor as PocketActor).hit(float(total_hits[actor]))
-	if wanted == 0 and not indoors:
-		add_wanted(1)
+			var length: float = float(victim_distance.get(actor, 0.0))
+			var falloff := clampf(1.0 - maxf(0.0, length / float(gun["range"]) - 0.65) * 0.8, 0.72, 1.0)
+			(actor as PocketActor).hit(float(total_hits[actor]) * falloff)
+	for item in actors:
+		var civilian := item as PocketActor
+		if is_instance_valid(civilian) and not civilian.dead and not civilian.officer and civilian.global_position.distance_to(origin) < 20.0:
+			civilian.flee_from(origin)
+	if not indoors:
+		if wanted == 0:
+			add_wanted(1)
+		else:
+			wanted_idle = 0.0
 
+
+func reload_gun() -> void:
+	if reload_weapon_id != "" or hero.dead or carjack_busy:
+		return
+	var gun := selected_gun()
+	var id: String = gun["id"]
+	var count := int(loaded_rounds.get(id, 0))
+	var capacity := int(gun["magazine"])
+	if count >= capacity or int(ammunition.get(id, 0)) <= 0:
+		return
+	reload_weapon_id = id
+	reload_clock = float(gun["reload"])
+	sound.play_ui("ui")
+	show_message("RELOADING " + id.to_upper())
+
+
+func finish_reload() -> void:
+	for gun in WEAPONS:
+		if String(gun["id"]) != reload_weapon_id:
+			continue
+		var id: String = gun["id"]
+		var available := maxi(0, int(ammunition.get(id, 0)))
+		var needed := maxi(0, int(gun["magazine"]) - int(loaded_rounds.get(id, 0)))
+		var amount := mini(available, needed)
+		ammunition[id] = available - amount
+		loaded_rounds[id] = int(loaded_rounds.get(id, 0)) + amount
+		break
+	reload_weapon_id = ""
 
 func on_hero_damaged(points: float) -> void:
 	Fx.impact(self, hero.global_position + Vector3(0.0, 1.45, 0.0), Color("#ff7371"), points)
@@ -403,8 +442,17 @@ func on_actor_injured(actor: PocketActor) -> void:
 		add_wanted(2 if actor.officer else 1)
 
 
-func on_actor_died(_actor: PocketActor) -> void:
-	pass
+func on_actor_died(actor: PocketActor) -> void:
+	if actor.officer:
+		add_wanted(1)
+		sound.play("death", actor.global_position, -8.0)
+		return
+	sound.play("death", actor.global_position, -10.0)
+	get_tree().create_timer(8.0).timeout.connect(func() -> void:
+		if is_instance_valid(city) and is_inside_tree():
+			for newcomer in city.replenish_pedestrians():
+				connect_actor(newcomer)
+	)
 
 
 func add_wanted(levels: int) -> void:
@@ -434,9 +482,13 @@ func selected_gun() -> Dictionary:
 
 
 func next_weapon() -> void:
+	if reload_weapon_id != "":
+		return
 	current_weapon = (current_weapon + 1) % owned_weapons.size()
-	shoot_clock = 0.0
 	hero.equip_weapon(String(selected_gun()["id"]))
+	zoom_enabled = false
+	camera.fov = 69.0
+	sound.play_ui("ui")
 
 
 func interaction() -> void:
