@@ -22,3 +22,5 @@ jobs:
         run: godot --headless --path . --editor --import --quit
       - name: Run generated-world smoke tests
         run: godot --headless --path . --script res://scripts/smoke_test.gd
+      - name: Run extended autonomous simulation
+        run: godot --headless --path . --script res://scripts/simulation_test.gd
