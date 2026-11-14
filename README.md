@@ -80,3 +80,11 @@ The build uses Godot 4.4.1 and includes the existing web export preset unchanged
 - **Pedestrians**: movement stays aligned with sidewalks, while occasional inter-block crossings remain on painted zebra-crossing corridors.
 
 **Status:** experimental preview; smoke tests check scene initialization and key component states, but do not replace Android device testing. Vehicle braking uses forward raycasts and is not yet a full traffic simulation; walking/death/carjacking are procedural rig motions rather than motion-captured animations.
+
+## v0.2.1 — sidewalk and pedestrian navigation fix
+
+- Raised sidewalks are visual only; the street and pavements now share one flat physical ground surface, eliminating the step that blocked the player.
+- Nonblocking pedestrian collision masks prevent same-route crowd and vehicle gridlocks while retaining hitscan target detection and vehicle braking.
+- Opposing pedestrians use separate passing lanes within the sidewalk and marked zebra-crossing width.
+- After 1.8 seconds without route progress, pedestrians automatically pick another legal sidewalk waypoint.
+- Automated smoke tests check real player movement across the curb, sidewalk geometry, character collision layers and stuck-route recovery.

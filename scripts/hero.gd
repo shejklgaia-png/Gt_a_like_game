@@ -31,6 +31,8 @@ var weapon_kind: String = "Handgun"
 
 
 func _ready() -> void:
+	collision_layer = 4
+	collision_mask = 11 # Static world (1), pedestrians (2), and vehicles (8).
 	var hitbox := CollisionShape3D.new()
 	hitbox.name = "CollisionShape3D"
 	var capsule := CapsuleShape3D.new()
