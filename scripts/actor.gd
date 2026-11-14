@@ -38,6 +38,12 @@ var path_queue: Array[Vector3] = []
 var crosswalk_waiting: bool = false
 var crosswalk_active: bool = false
 var panic_time: float = 0.0
+var navigation: PocketNavGrid
+var pursuit_route := PackedVector2Array()
+var pursuit_index: int = 0
+var pursuit_refresh: float = 0.0
+var last_seen_position := Vector3.ZERO
+var lost_sight_time: float = 0.0
 
 
 func setup(is_officer: bool, initial_anchor: Vector3, seed_value: int, p_axis: int = 0) -> void:
@@ -168,13 +174,46 @@ func _physics_process(delta: float) -> void:
 		velocity = Vector3.ZERO
 		return
 	if officer and engage and is_instance_valid(chase_target):
-		target = chase_target.global_position
+		var foe_position: Vector3 = chase_target.global_position
+		var target_distance := global_position.distance_to(foe_position)
+		var seen := target_distance < 40.0
+		if seen:
+			var ray := PhysicsRayQueryParameters3D.create(global_position + Vector3(0, 1.7, 0), foe_position + Vector3(0, 1.2, 0))
+			ray.exclude = [get_rid()]
+			ray.collision_mask = 1
+			seen = get_world_3d().direct_space_state.intersect_ray(ray).is_empty()
+		if seen:
+			last_seen_position = foe_position
+			lost_sight_time = 0.0
+		else:
+			lost_sight_time += delta
+			if last_seen_position == Vector3.ZERO:
+				last_seen_position = foe_position
+		if lost_sight_time < 11.0:
+			pursuit_refresh -= delta
+			if pursuit_refresh <= 0.0:
+				pursuit_refresh = 0.8
+				if navigation != null:
+					pursuit_route = navigation.path(global_position, last_seen_position)
+				pursuit_index = 0
+			while pursuit_index < pursuit_route.size():
+				var next_point := pursuit_route[pursuit_index]
+				if Vector2(global_position.x - next_point.x, global_position.z - next_point.y).length() > 1.20:
+					break
+				pursuit_index += 1
+			if pursuit_index < pursuit_route.size():
+				var waypoint := pursuit_route[pursuit_index]
+				target = Vector3(waypoint.x, foe_position.y, waypoint.y)
+			else:
+				target = last_seen_position
+		else:
+			target = anchor
 	elif Vector2(global_position.x - target.x, global_position.z - target.z).length() < 0.85:
 		advance_waypoint()
 	var direction := target - global_position
 	direction.y = 0
 	var attack_lock := attack_clock >= 0.0
-	var stop_distance := 2.1 if officer and engage else 0.72
+	var stop_distance := 1.2 if officer and engage else 0.72
 	var signal_wait := not officer and crosswalk_waiting and direction.length() < 0.9 and not TrafficRules.pedestrians_have_green(sidewalk_axis)
 	var is_walking := direction.length() > stop_distance and not attack_lock and not signal_wait
 	if is_walking:
