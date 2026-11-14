@@ -546,11 +546,11 @@ func make_mission_marker() -> void:
 	Shapes.ball(mission_marker, Vector3(0, 1.2, 0), 0.65, Color("#ffc44e"))
 	mission_marker_label = Shapes.sign3d(mission_marker, "PICKUP", Vector3(0, 2.7, 0), Color("#ffdf9c"))
 	if mission_stage == 0:
-		mission_point = Vector3(0, 0.2, 0)
+		mission_point = GameData.delivery_sites()[7]
 	else:
-		mission_point = Vector3(72, 0.2, 72)
+		var sites := GameData.delivery_sites()
+		mission_point = sites[clampi(mission_last_index, 0, sites.size() - 1)]
 	refresh_mission_marker()
-
 
 func animate_marker(delta: float) -> void:
 	if mission_marker != null:
@@ -565,59 +565,90 @@ func refresh_mission_marker() -> void:
 func advance_delivery() -> void:
 	if mission_stage == 0:
 		mission_stage = 1
-		var destinations := [
-			Vector3(72.0, 0.2, 72.0),
-			Vector3(-72.0, 0.2, 36.0),
-			Vector3(36.0, 0.2, -72.0),
-			Vector3(-36.0, 0.2, -36.0)
-		]
-		mission_point = destinations[deliveries % destinations.size()]
+		var sites := GameData.delivery_sites()
+		mission_last_index = (deliveries * 3 + 1) % sites.size()
+		mission_point = sites[mission_last_index]
+		var starting := car_driven.global_position if car_driven != null else hero.global_position
+		var distance := starting.distance_to(mission_point)
+		mission_limit = GameData.mission_time(distance)
+		mission_reward = GameData.mission_reward(distance, mini(5, int(deliveries / 3)))
+		show_message("DELIVERY STARTED  |  $%d REWARD" % mission_reward)
 	else:
 		mission_stage = 0
 		deliveries += 1
-		cash += 360
-		mission_point = Vector3(0, 0.2, 0)
+		cash += mission_reward
+		total_earnings += mission_reward
+		sound.play_ui("cash")
+		show_message("DELIVERED +$%d" % mission_reward)
+		mission_limit = 0.0
+		mission_point = GameData.delivery_sites()[7]
 		save_game()
 	refresh_mission_marker()
+	save_game()
 
+
+func show_message(message: String) -> void:
+	display_message = message
+	display_message_time = 2.6
 
 func load_game() -> void:
-	if not FileAccess.file_exists(SAVE_PATH):
-		return
-	var file := FileAccess.open(SAVE_PATH, FileAccess.READ)
-	if file == null:
-		return
-	var decoded: Variant = JSON.parse_string(file.get_as_text())
-	if not decoded is Dictionary:
+	var decoded: Dictionary = SafeSave.load_json(SAVE_PATH)
+	if decoded.is_empty():
 		return
 	cash = maxi(0, int(decoded.get("cash", cash)))
 	deliveries = maxi(0, int(decoded.get("deliveries", 0)))
+	total_earnings = maxi(0, int(decoded.get("earnings", 0)))
+	mission_failures = maxi(0, int(decoded.get("failures", 0)))
+	mission_stage = clampi(int(decoded.get("mission_stage", 0)), 0, 1)
+	mission_last_index = clampi(int(decoded.get("mission_index", 0)), 0, GameData.delivery_sites().size() - 1)
+	mission_limit = maxf(0.0, float(decoded.get("mission_limit", 0.0)))
+	mission_reward = maxi(0, int(decoded.get("mission_reward", 0)))
 	layouts = decoded.get("interiors", {})
 	owned_weapons.clear()
 	for item in decoded.get("owned", ["Handgun"]):
 		var name := String(item)
-		if WEAPONS.any(func(g: Dictionary) -> bool: return g["id"] == name):
+		if WEAPONS.any(func(g: Dictionary) -> bool: return g["id"] == name) and not owned_weapons.has(name):
 			owned_weapons.append(name)
-	if owned_weapons.is_empty():
-		owned_weapons.append("Handgun")
-	ammunition = decoded.get("ammo", {"Handgun": 180})
+	if not owned_weapons.has("Handgun"):
+		owned_weapons.push_front("Handgun")
+	var saved_ammo = decoded.get("ammo", {"Handgun": 180})
+	if saved_ammo is Dictionary:
+		ammunition = saved_ammo
+	var saved_mags = decoded.get("loaded", {"Handgun": 15})
+	if saved_mags is Dictionary:
+		loaded_rounds = saved_mags
 	current_weapon = clampi(int(decoded.get("equipped", 0)), 0, owned_weapons.size() - 1)
+	var coords = decoded.get("player_position", [])
+	if coords is Array and coords.size() == 3:
+		var p := Vector3(float(coords[0]), float(coords[1]), float(coords[2]))
+		if absf(p.x) < 120 and absf(p.z) < 120 and p.y > -2.0 and p.y < 10.0:
+			hero.position = p
 
 
 func save_game() -> void:
-	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
-	if file == null:
-		return
+	var pos := hero.global_position
+	if is_instance_valid(car_driven):
+		pos = car_driven.global_position + Vector3(2.5, 0, 0)
+	if indoors:
+		pos = outdoor_exit
 	var state := {
 		"cash": cash,
 		"deliveries": deliveries,
+		"earnings": total_earnings,
+		"failures": mission_failures,
+		"mission_stage": mission_stage,
+		"mission_index": mission_last_index,
+		"mission_limit": mission_limit,
+		"mission_reward": mission_reward,
 		"interiors": layouts,
 		"owned": owned_weapons,
 		"ammo": ammunition,
-		"equipped": current_weapon
+		"loaded": loaded_rounds,
+		"equipped": current_weapon,
+		"player_position": [pos.x, pos.y, pos.z]
 	}
-	file.store_string(JSON.stringify(state, "\t"))
-
+	if not SafeSave.save_json(SAVE_PATH, state):
+		push_warning("Save could not be written; last good backup was kept.")
 
 func _input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
