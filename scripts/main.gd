@@ -1000,6 +1000,72 @@ func purchase_gun(gun_name: String) -> void:
 		return
 
 
+func toggle_scope() -> void:
+	if String(selected_gun()["id"]) != "Sniper":
+		return
+	zoom_enabled = not zoom_enabled
+	camera.fov = 27.0 if zoom_enabled else 69.0
+	aim_button.text = "UNZOOM" if zoom_enabled else "SCOPE"
+	sound.play_ui("ui")
+
+
+func create_settings_ui() -> void:
+	settings_panel = Panel.new()
+	settings_panel.add_theme_stylebox_override("panel", style(Color("#192733"), 20))
+	ui.add_child(settings_panel)
+	var padding := MarginContainer.new()
+	padding.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	for side in ["left", "right", "top", "bottom"]:
+		padding.add_theme_constant_override("margin_" + side, 16)
+	settings_panel.add_child(padding)
+	var stack := VBoxContainer.new()
+	stack.add_theme_constant_override("separation", 7)
+	padding.add_child(stack)
+	var title := make_label(27, Color("#e3faf5"))
+	title.text = "POCKET DISTRICT | PAUSE"
+	stack.add_child(title)
+	var sub := make_label(16, Color("#d2dce6"))
+	sub.text = "CAMERA, DISPLAY & SOUND"
+	stack.add_child(sub)
+	var fov_button := make_button("CAMERA DISTANCE", Color("#4a6572"))
+	fov_button.custom_minimum_size = Vector2(0, 48)
+	fov_button.pressed.connect(func() -> void:
+		camera_distance = 8.0 if camera_distance >= 10.0 else camera_distance + 1.0
+		fov_button.text = "CAMERA DISTANCE %.0fm" % camera_distance
+		sound.play_ui()
+	)
+	stack.add_child(fov_button)
+	var map_button := make_button("SHOW / HIDE MINIMAP", Color("#4a6572"))
+	map_button.custom_minimum_size = Vector2(0, 48)
+	map_button.pressed.connect(func() -> void: minimap.visible = not minimap.visible)
+	stack.add_child(map_button)
+	var fps_button := make_button("SHOW / HIDE FPS", Color("#4a6572"))
+	fps_button.custom_minimum_size = Vector2(0, 48)
+	fps_button.pressed.connect(func() -> void: perf_overlay.visible = not perf_overlay.visible)
+	stack.add_child(fps_button)
+	var audio_button := make_button("SOUND ON / OFF", Color("#4a6572"))
+	audio_button.custom_minimum_size = Vector2(0, 48)
+	audio_button.pressed.connect(func() -> void:
+		var index := AudioServer.get_bus_index("Master")
+		AudioServer.set_bus_mute(index, not AudioServer.is_bus_mute(index))
+	)
+	stack.add_child(audio_button)
+	var resume := make_button("RESUME GAME", Color("#28766a"))
+	resume.custom_minimum_size = Vector2(0, 56)
+	resume.pressed.connect(toggle_settings)
+	stack.add_child(resume)
+	settings_panel.visible = false
+
+
+func toggle_settings() -> void:
+	var show := not settings_panel.visible
+	settings_panel.visible = show
+	shop_panel.visible = false
+	fire_held = false
+	stick_value = Vector2.ZERO
+	get_tree().paused = show
+
+
 func layout_ui() -> void:
 	if ui == null:
 		return
@@ -1032,6 +1098,9 @@ func layout_ui() -> void:
 	reload_button.position = Vector2(screen.x - 142, screen.y - 568)
 	aim_button.position = Vector2(screen.x - 292, screen.y - 568)
 	aim_button.disabled = String(selected_gun()["id"]) != "Sniper"
+	if aim_button.disabled:
+		zoom_enabled = false
+		camera.fov = 69.0
 	pause_button.position = Vector2(screen.x - 70, 117)
 	pause_button.size = Vector2(58, 48)
 	minimap.position = Vector2(15, 195)
@@ -1040,5 +1109,5 @@ func layout_ui() -> void:
 	if settings_panel != null:
 		settings_panel.size = Vector2(minf(screen.x - 28, 420), 420)
 		settings_panel.position = (screen - settings_panel.size) * 0.5
-	shop_panel.size = Vector2(minf(screen.x - 30, 540), 510)
+	shop_panel.size = Vector2(minf(screen.x - 30, 540), minf(screen.y - 55, 620))
 	shop_panel.position = (screen - shop_panel.size) * 0.5
