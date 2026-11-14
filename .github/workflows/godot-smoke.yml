@@ -1,0 +1,24 @@
+name: Godot 4 smoke tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  godot-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Godot
+        uses: chickensoft-games/setup-godot@v2
+        with:
+          version: 4.4.1
+          use-dotnet: false
+      - name: Import Godot project
+        run: godot --headless --path . --editor --import --quit
+      - name: Run generated-world smoke tests
+        run: godot --headless --path . --script res://scripts/smoke_test.gd
