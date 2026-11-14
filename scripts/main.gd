@@ -42,8 +42,8 @@ var mission_marker_label: Label3D
 var deliveries: int = 0
 var autosave_clock: float = 0.0
 var camera_yaw: float = 0.0
-var camera_pitch: float = deg_to_rad(64.0)
-var camera_distance: float = 9.1
+var camera_pitch: float = deg_to_rad(69.0)
+var camera_distance: float = 16.5
 var camera_touch: int = -1
 var camera_mouse: bool = false
 var carjack_busy: bool = false
@@ -117,7 +117,7 @@ func _ready() -> void:
 	camera.current = true
 	camera.far = 270.0
 	add_child(camera)
-	camera.position = hero.position + Vector3(0, 7.4, 4.1)
+	camera.position = hero.position + Vector3(0, 16.0, 5.9)
 	camera.look_at(hero.position + Vector3(0, 1.0, 0))
 	hero.damaged.connect(on_hero_damaged)
 	hero.died.connect(on_hero_died)
@@ -193,8 +193,15 @@ func _physics_process(delta: float) -> void:
 			elif officer.global_position.distance_to(focus) > 95.0:
 				officer.queue_free()
 	camera_override_timer = maxf(0.0, camera_override_timer - delta)
-	if is_instance_valid(car_driven) and camera_override_timer <= 0.0:
-		camera_yaw = lerp_angle(camera_yaw, car_driven.rotation.y, clampf(delta * 2.1, 0.0, 1.0))
+	if camera_override_timer <= 0.0:
+		if is_instance_valid(car_driven):
+			# Vehicle mode: keep looking along the driven vehicle's heading.
+			camera_yaw = lerp_angle(camera_yaw, car_driven.rotation.y, clampf(delta * 2.1, 0.0, 1.0))
+		else:
+			# On foot: fix the overhead viewing direction in world-space.
+			# Camera-relative movement must not feed back into character heading.
+			camera_yaw = lerp_angle(camera_yaw, 0.0, clampf(delta * 2.7, 0.0, 1.0))
+		camera_pitch = lerpf(camera_pitch, deg_to_rad(69.0), clampf(delta * 2.4, 0.0, 1.0))
 	update_camera(delta)
 
 
@@ -299,7 +306,7 @@ func update_camera(delta: float) -> void:
 				best_length = allowed
 				obstructed = true
 	var destination := look_at_position + dir * best_length
-	var smooth := 18.0 if obstructed else (9.0 if indoors else 7.5)
+	var smooth := 20.0 if obstructed else (11.0 if indoors else 10.5)
 	camera.global_position = camera.global_position.lerp(destination, clampf(delta * smooth, 0.0, 1.0))
 	camera.look_at(look_at_position, Vector3.UP)
 
@@ -1117,7 +1124,7 @@ func create_settings_ui() -> void:
 	var fov_button := make_button("CAMERA DISTANCE", Color("#4a6572"))
 	fov_button.custom_minimum_size = Vector2(0, 48)
 	fov_button.pressed.connect(func() -> void:
-		camera_distance = 8.0 if camera_distance >= 10.0 else camera_distance + 1.0
+		camera_distance = 13.5 if camera_distance >= 19.5 else camera_distance + 1.0
 		fov_button.text = "CAMERA DISTANCE %.0fm" % camera_distance
 		sound.play_ui()
 	)

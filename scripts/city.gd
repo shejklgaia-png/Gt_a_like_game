@@ -16,7 +16,11 @@ var person_root: Node3D
 var police_root: Node3D
 var navigation: PocketNavGrid
 const ROAD_COLOR := Color("#293341")
-const SIDEWALK_COLOR := Color("#697480")
+const SIDEWALK_COLORS := [
+	Color("#79c6bc"), Color("#e9b48d"), Color("#b6a0d9"), Color("#e6d17c"),
+	Color("#9ebfdd"), Color("#a9cd98"), Color("#eba4b1"), Color("#b2a3d9"),
+	Color("#dfba8f"), Color("#88cbd3"), Color("#d9a1ca"), Color("#c2d67f")
+]
 
 
 func build_city() -> void:
@@ -46,7 +50,7 @@ func build_city() -> void:
 	spawn_traffic()
 	spawn_civilians()
 	add_street_props()
-	UrbanAssets.install(self)
+	UrbanAssets.install(self, buildings)
 	var lights := TrafficLights.new()
 	lights.name = "TrafficLights"
 	add_child(lights)
@@ -114,10 +118,12 @@ func create_building(ix: int, iz: int) -> void:
 	var shop := ix == 0 and iz == -1
 	if shop:
 		height = 12.0
-	Shapes.box(self, Vector3(cx, 0.026, cz), Vector3(27, 0.04, 27), SIDEWALK_COLOR) # Flat decorative sidewalk; collision is the continuous ground plane.
-	var wall_color := Color.from_hsv(rng.randf_range(0.52, 0.68), rng.randf_range(0.12, 0.30), rng.randf_range(0.42, 0.75))
+	var sidewalk_color: Color = SIDEWALK_COLORS[posmod(ix * 13 + iz * 7, SIDEWALK_COLORS.size())]
+	Shapes.box(self, Vector3(cx, 0.026, cz), Vector3(27, 0.04, 27), sidewalk_color) # Flat and nonblocking; streets and sidewalks share one physical ground plane.
+	var wall_hue := fposmod(float(ix + 3) * 0.207 + float(iz + 3) * 0.133 + rng.randf_range(-0.025, 0.025), 1.0)
+	var wall_color := Color.from_hsv(wall_hue, rng.randf_range(0.47, 0.69), rng.randf_range(0.74, 0.91))
 	if shop:
-		wall_color = Color("#444d60")
+		wall_color = Color("#bc8178")
 	Shapes.box(self, Vector3(cx, height * 0.5 + 0.02, cz), Vector3(width, height, depth), wall_color, true)
 	Shapes.box(self, Vector3(cx, height + 0.31, cz), Vector3(width + 1.0, 0.35, depth + 1.0), wall_color.lightened(0.20))
 	var front_z := cz - depth / 2.0
@@ -154,18 +160,32 @@ func create_building(ix: int, iz: int) -> void:
 		"shop": shop,
 		"height": height,
 		"width": width,
-		"depth": depth
+		"depth": depth,
+		"wall_color": wall_color,
+		"sidewalk_color": sidewalk_color
 	})
 
 
 func add_street_props() -> void:
-	for ix in range(-3, 4):
-		for iz in range(-3, 4):
-			var x := float(ix) * 36.0 + 7.2
-			var z := float(iz) * 36.0 + 7.2
-			Shapes.box(self, Vector3(x, 1.9, z), Vector3(0.22, 3.8, 0.22), Color("#253244"))
-			Shapes.box(self, Vector3(x, 3.85, z - 0.8), Vector3(0.17, 0.14, 1.7), Color("#273443"))
-			Shapes.box(self, Vector3(x, 3.8, z - 1.4), Vector3(0.55, 0.11, 0.48), Color("#c9d8a1"))
+	# Place lamps beside building facades rather than intersection corners.
+	# The intersection stop-line and sidewalk corridors stay clear.
+	var lights := Node3D.new()
+	lights.name = "StreetLamps"
+	add_child(lights)
+	for building in buildings:
+		var center: Vector3 = building["position"]
+		var width: float = float(building["width"])
+		var depth: float = float(building["depth"])
+		var lamp_position := Vector3(center.x + width * 0.5 + 0.52, 0.05, center.z)
+		var lamp := Node3D.new()
+		lamp.name = "FacadeLamp"
+		lamp.position = lamp_position
+		lamp.set_meta("lot", String(building["id"]))
+		lights.add_child(lamp)
+		Shapes.box(lamp, Vector3(0, 1.9, 0), Vector3(0.20, 3.8, 0.20), Color("#344350"))
+		# The arm points inward toward the facade and away from the sidewalk lane.
+		Shapes.box(lamp, Vector3(-0.48, 3.85, 0), Vector3(1.10, 0.14, 0.17), Color("#425c66"))
+		Shapes.box(lamp, Vector3(-0.90, 3.73, 0), Vector3(0.45, 0.08, 0.40), Color("#ffeab2"))
 
 
 func spawn_traffic() -> void:
