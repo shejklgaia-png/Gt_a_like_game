@@ -10,7 +10,7 @@ func run_smoke() -> void:
 		push_error("Failed to load starting scene")
 		quit(1)
 		return
-	var game := scene.instantiate()
+	var game = scene.instantiate()
 	root.add_child(game)
 	await process_frame
 	await physics_frame
