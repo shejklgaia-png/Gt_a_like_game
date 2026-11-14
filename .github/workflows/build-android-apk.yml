@@ -19,6 +19,15 @@ jobs:
       image: barichello/godot-ci:4.4.1
     steps:
       - uses: actions/checkout@v4
+      - name: Initialize Godot export paths for GitHub runner
+        run: |
+          mkdir -p "${HOME}/.local/share/godot/export_templates/4.4.1.stable"
+          mkdir -p "${HOME}/.config/godot"
+          cp -a /root/.local/share/godot/export_templates/4.4.1.stable/. "${HOME}/.local/share/godot/export_templates/4.4.1.stable/"
+          cp /root/.config/godot/editor_settings-4.4.tres "${HOME}/.config/godot/editor_settings-4.4.tres"
+          cp /root/debug.keystore "${HOME}/debug.keystore"
+          sed -i "s@/root/debug.keystore@${HOME}/debug.keystore@g" "${HOME}/.config/godot/editor_settings-4.4.tres"
+          test -s "${HOME}/.local/share/godot/export_templates/4.4.1.stable/android_debug.apk"
       - name: Import Godot project
         run: godot --headless --path . --editor --import --quit
       - name: Validate generated game scene
