@@ -67,7 +67,7 @@ func create_building(ix: int, iz: int) -> void:
 		for col in [-1, 0, 1]:
 			if col == 0 and row == 2:
 				continue
-			var wx := cx + col * width * 0.27
+			var wx: float = cx + float(col) * width * 0.27
 			var wy := 1.1 + float(row) * 3.65
 			Shapes.box(self, Vector3(wx, wy, front_z - 0.075), Vector3(2.7, 1.7, 0.13), Color("#638b98"))
 	buildings.append({
