@@ -73,6 +73,7 @@ var display_message: String = ""
 var display_message_time: float = 0.0
 var camera_override_timer: float = 0.0
 var crosshair_label: Label
+var engine_audio: AudioStreamPlayer3D
 
 var ui: Control
 var status_label: Label
@@ -200,6 +201,9 @@ func _physics_process(delta: float) -> void:
 func _process(delta: float) -> void:
 	if hero == null:
 		return
+	if is_instance_valid(engine_audio) and is_instance_valid(car_driven):
+		engine_audio.pitch_scale = clampf(0.72 + absf(car_driven.drive_speed) / 20.0, 0.7, 2.4)
+		engine_audio.volume_db = -28.0 + minf(10.0, absf(car_driven.drive_speed) * 0.3)
 	autosave_clock += delta
 	if autosave_clock > 18.0:
 		autosave_clock = 0.0
@@ -489,6 +493,10 @@ func busted() -> void:
 		exit_car()
 		if car_driven != null:
 			car.occupied = false
+			if is_instance_valid(engine_audio):
+				engine_audio.stop()
+				engine_audio.queue_free()
+				engine_audio = null
 			car.drive_input = Vector2.ZERO
 			car.nitro = false
 			car_driven = null
@@ -578,6 +586,13 @@ func enter_car(car: PocketVehicle) -> void:
 		car_driven = car
 		car.occupied = true
 		car.being_stolen = false
+		engine_audio = AudioStreamPlayer3D.new()
+		engine_audio.stream = sound.sounds["engine"]
+		engine_audio.unit_size = 19.0
+		engine_audio.max_distance = 90.0
+		engine_audio.volume_db = -26.0
+		car.add_child(engine_audio)
+		engine_audio.play()
 		car.open_driver_door(false)
 		sound.play("car_door", car.global_position)
 		hero.stop_carjack()
@@ -625,6 +640,10 @@ func exit_car() -> void:
 	body.set_deferred("disabled", false)
 	sound.play("car_door", vehicle.global_position, -8.0)
 	vehicle.occupied = false
+	if is_instance_valid(engine_audio):
+		engine_audio.stop()
+		engine_audio.queue_free()
+		engine_audio = null
 	vehicle.drive_input = Vector2.ZERO
 	vehicle.nitro = false
 	car_driven = null
@@ -640,6 +659,7 @@ func enter_interior(door: Dictionary) -> void:
 		save_game()
 	interior.display_layout(active_building, layouts[active_building], looted_buildings.has(active_building))
 	indoors = true
+	sound.set_indoors(true)
 	city.visible = false
 	city.process_mode = Node.PROCESS_MODE_DISABLED
 	interior.visible = true
@@ -651,6 +671,7 @@ func enter_interior(door: Dictionary) -> void:
 
 func leave_interior() -> void:
 	indoors = false
+	sound.set_indoors(false)
 	interior.visible = false
 	city.visible = true
 	city.process_mode = Node.PROCESS_MODE_INHERIT
