@@ -535,7 +535,7 @@ func update_hud() -> void:
 
 func waypoint_arrow(delta_to_goal: Vector3) -> String:
 	var angle := atan2(delta_to_goal.z, delta_to_goal.x)
-	var index := posmodi(int(round(angle / (PI / 4.0))), 8)
+	var index: int = wrapi(int(round(angle / (PI / 4.0))), 0, 8)
 	var symbols := ["→", "↘", "↓", "↙", "←", "↖", "↑", "↗"]
 	return symbols[index]
 
