@@ -152,6 +152,7 @@ func _physics_process(delta: float) -> void:
 				officer.try_baton_attack(hero, 7.0 + float(wanted))
 			elif officer.global_position.distance_to(focus) > 95.0:
 				officer.queue_free()
+	update_camera(delta)
 
 func _process(delta: float) -> void:
 	autosave_clock += delta
@@ -172,7 +173,6 @@ func _process(delta: float) -> void:
 			wanted -= 1
 			wanted_idle = 0.0
 	animate_marker(delta)
-	update_camera(delta)
 	update_hud()
 
 
