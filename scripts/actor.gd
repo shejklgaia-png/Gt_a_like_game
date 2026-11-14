@@ -11,12 +11,14 @@ var anchor: Vector3 = Vector3.ZERO
 var target: Vector3 = Vector3.ZERO
 var chase_target: Node3D
 var engage: bool = false
+var sidewalk_axis: int = 0
 var strike_cooldown: float = 0.0
 var rng := RandomNumberGenerator.new()
 
 
-func setup(is_officer: bool, initial_anchor: Vector3, seed_value: int) -> void:
+func setup(is_officer: bool, initial_anchor: Vector3, seed_value: int, p_axis: int = 0) -> void:
 	officer = is_officer
+	sidewalk_axis = p_axis
 	anchor = initial_anchor
 	target = anchor
 	rng.seed = seed_value
@@ -47,7 +49,10 @@ func _physics_process(delta: float) -> void:
 	if officer and engage and is_instance_valid(chase_target):
 		target = chase_target.global_position
 	elif global_position.distance_to(target) < 1.4:
-		target = anchor + Vector3(rng.randf_range(-8.0, 8.0), 0, rng.randf_range(-8.0, 8.0))
+		if sidewalk_axis == 0:
+			target = anchor + Vector3(0.0, 0.0, rng.randf_range(-12.0, 12.0))
+		else:
+			target = anchor + Vector3(rng.randf_range(-12.0, 12.0), 0.0, 0.0)
 	var direction := target - global_position
 	direction.y = 0
 	var distance := direction.length()
