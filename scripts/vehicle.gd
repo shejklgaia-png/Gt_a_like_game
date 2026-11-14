@@ -79,20 +79,23 @@ func entrance_point() -> Vector3:
 func pedestrian_ahead() -> bool:
 	if occupied or being_stolen:
 		return false
-	var origin := global_position + Vector3(0, 0.05, 0) - global_transform.basis.z * 2.45
-	var tip := origin - global_transform.basis.z * 7.2
-	var params := PhysicsRayQueryParameters3D.create(origin, tip)
-	params.exclude = [get_rid()]
-	var result := get_world_3d().direct_space_state.intersect_ray(params)
-	if result.is_empty():
-		return false
-	var collider: Object = result.get("collider")
-	if collider is PocketHero:
-		return not (collider as PocketHero).dead
-	if collider is PocketActor:
-		return not (collider as PocketActor).dead
-	if collider is PocketVehicle:
-		return true
+	# Three bumper rays cover the width of the car, not only the centerline.
+	var forward := -global_transform.basis.z
+	for lateral in [-0.72, 0.0, 0.72]:
+		var origin := global_position + Vector3(0, 0.05, 0) + global_transform.basis.x * lateral + forward * 2.25
+		var tip := origin + forward * 7.4
+		var params := PhysicsRayQueryParameters3D.create(origin, tip)
+		params.exclude = [get_rid()]
+		var result := get_world_3d().direct_space_state.intersect_ray(params)
+		if result.is_empty():
+			continue
+		var collider: Object = result.get("collider")
+		if collider is PocketHero and not (collider as PocketHero).dead:
+			return true
+		if collider is PocketActor and not (collider as PocketActor).dead:
+			return true
+		if collider is PocketVehicle:
+			return true
 	return false
 
 
