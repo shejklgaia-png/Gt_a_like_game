@@ -27,6 +27,8 @@ func setup(p_axis: int, p_travel: float, p_lane: float, color: Color) -> void:
 
 
 func _ready() -> void:
+	collision_layer = 8
+	collision_mask = 15 # Road/buildings, pedestrians, player and other vehicles.
 	var shape := CollisionShape3D.new()
 	var box_shape := BoxShape3D.new()
 	box_shape.size = Vector3(2.3, 1.45, 4.5)
