@@ -485,7 +485,15 @@ func busted() -> void:
 	if indoors:
 		leave_interior()
 	if car_driven != null:
+		var car := car_driven
 		exit_car()
+		if car_driven != null:
+			car.occupied = false
+			car.drive_input = Vector2.ZERO
+			car.nitro = false
+			car_driven = null
+			hero.visible = true
+			(hero.get_node("CollisionShape3D") as CollisionShape3D).set_deferred("disabled", false)
 	hero.position = Vector3(18.0, 0.35, -34.0)
 	hero.reset_health()
 	cash = maxi(0, cash - 200)
@@ -583,32 +591,42 @@ func enter_car(car: PocketVehicle) -> void:
 func exit_car() -> void:
 	if car_driven == null:
 		return
-	var leave_at := car_driven.global_position + car_driven.global_transform.basis.x * 3.1
-	# Test two doors and behind the car; do not place the player inside a building.
-	var options := [
-		leave_at,
-		car_driven.global_position - car_driven.global_transform.basis.x * 3.1,
-		car_driven.global_position + car_driven.global_transform.basis.z * 4.1
+	var vehicle := car_driven
+	var options: Array[Vector3] = [
+		vehicle.global_position + vehicle.global_transform.basis.x * 3.1,
+		vehicle.global_position - vehicle.global_transform.basis.x * 3.1,
+		vehicle.global_position + vehicle.global_transform.basis.z * 4.2,
+		vehicle.global_position - vehicle.global_transform.basis.z * 4.2
 	]
+	for spoke in range(8):
+		var angle := TAU * float(spoke) / 8.0
+		options.append(vehicle.global_position + Vector3(cos(angle), 0, sin(angle)) * 5.2)
+	var leave_at := Vector3.ZERO
+	var valid := false
 	for option in options:
 		var sphere := SphereShape3D.new()
 		sphere.radius = 0.62
 		var query := PhysicsShapeQueryParameters3D.new()
 		query.shape = sphere
-		query.transform = Transform3D(Basis.IDENTITY, Vector3(option.x, 0.9, option.z))
-		query.collision_mask = 1
+		query.transform = Transform3D(Basis.IDENTITY, Vector3(option.x, 0.91, option.z))
+		query.collision_mask = 9 # Static obstacles and other vehicles.
+		query.exclude = [vehicle.get_rid()]
 		var hit := get_world_3d().direct_space_state.intersect_shape(query, 1)
 		if hit.is_empty():
 			leave_at = option
+			valid = true
 			break
-	hero.global_position = Vector3(leave_at.x, 0.45, leave_at.z)
+	if not valid:
+		show_message("NO CLEAR PLACE TO EXIT")
+		return
+	hero.global_position = Vector3(leave_at.x, 0.24, leave_at.z)
 	hero.visible = true
 	var body := hero.get_node("CollisionShape3D") as CollisionShape3D
 	body.set_deferred("disabled", false)
-	sound.play("car_door", car_driven.global_position, -8.0)
-	car_driven.occupied = false
-	car_driven.drive_input = Vector2.ZERO
-	car_driven.nitro = false
+	sound.play("car_door", vehicle.global_position, -8.0)
+	vehicle.occupied = false
+	vehicle.drive_input = Vector2.ZERO
+	vehicle.nitro = false
 	car_driven = null
 
 
