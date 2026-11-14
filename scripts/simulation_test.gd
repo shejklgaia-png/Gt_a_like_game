@@ -66,5 +66,53 @@ func exercise() -> void:
 	if game.interior.loot_near(center):
 		fail("Collected loot respawned when revisiting room", 62)
 		return
+	# Regression: every physical prop must leave the walking lanes and crosswalk
+	# approaches clear. Benches must face the facade rather than the junction.
+	var props := city.get_node_or_null("StreetProps") as Node3D
+	if props == null or props.get_child_count() < 25:
+		fail("Façade street props did not generate", 63)
+		return
+	for item in props.get_children():
+		var prop := item as Node3D
+		var side: int = int(prop.get_meta("side", 0))
+		var kind: int = int(prop.get_meta("kind", -1))
+		if side == 0 or kind < 0:
+			fail("Street prop is missing its pedestrian clearance metadata", 64)
+			return
+		if float(prop.get_meta("pedestrian_lane_clearance", 0.0)) < 0.85:
+			fail("Street prop extends into a pedestrian lane", 65)
+			return
+		var expected_yaw := -float(side) * PI * 0.5
+		if absf(wrapf(prop.rotation.y - expected_yaw, -PI, PI)) > 0.05:
+			fail("Street bench/furniture orientation is facing away from building", 66)
+			return
+		var z_from_junction := absf(prop.position.z - roundf(prop.position.z / 36.0) * 36.0)
+		if z_from_junction < 9.0:
+			fail("Street furnishing obstructs an intersection approach", 67)
+			return
+	# Generated sidewalks and facades should be brightly varied, not monochrome.
+	var wall_tints := {}
+	var pavement_tints := {}
+	for building in city.buildings:
+		var wall: Color = building["wall_color"]
+		var pavement: Color = building["sidewalk_color"]
+		wall_tints[wall.to_html()] = true
+		pavement_tints[pavement.to_html()] = true
+	if wall_tints.size() < 10 or pavement_tints.size() < 6:
+		fail("City color scheme does not contain distinct facade and pavement colors", 68)
+		return
+	# Camera stays locked to the player with the fixed elevated angle after a
+	# temporary orbit gesture, and has a meaningfully longer viewing distance.
+	if game.camera_distance < 15.5 or absf(game.camera_pitch - deg_to_rad(69.0)) > 0.02:
+		fail("New long-range fixed overhead camera was not initialized", 69)
+		return
+	game.camera_yaw = 0.65
+	game.camera_override_timer = 0.0
+	for tick in range(36):
+		await physics_frame
+	if absf(game.camera_yaw) > 0.13 or absf(game.camera_pitch - deg_to_rad(69.0)) > 0.02:
+		fail("Overhead camera failed to return to its fixed orientation", 70)
+		return
+	print("PASS: side-facade objects have crossing clearance; benches face inward; colorful blocks and long-range fixed overhead camera")
 	print("PASS: 160-frame autonomous city simulation, nav grid, traffic phases, generated ambience and unique deterministic interior loot")
 	quit(0)
