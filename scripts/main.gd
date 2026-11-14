@@ -71,6 +71,8 @@ var aim_button: Button
 var settings_panel: Panel
 var display_message: String = ""
 var display_message_time: float = 0.0
+var camera_override_timer: float = 0.0
+var crosshair_label: Label
 
 var ui: Control
 var status_label: Label
@@ -189,6 +191,9 @@ func _physics_process(delta: float) -> void:
 				officer.try_baton_attack(hero, 7.0 + float(wanted))
 			elif officer.global_position.distance_to(focus) > 95.0:
 				officer.queue_free()
+	camera_override_timer = maxf(0.0, camera_override_timer - delta)
+	if is_instance_valid(car_driven) and camera_override_timer <= 0.0:
+		camera_yaw = lerp_angle(camera_yaw, car_driven.rotation.y, clampf(delta * 2.1, 0.0, 1.0))
 	update_camera(delta)
 
 
@@ -267,26 +272,36 @@ func update_camera(delta: float) -> void:
 	var horizontal := cos(camera_pitch) * arm_distance
 	var offset := Vector3(sin(camera_yaw) * horizontal, sin(camera_pitch) * arm_distance, cos(camera_yaw) * horizontal)
 	var requested := look_at_position + offset
-	var params := PhysicsRayQueryParameters3D.create(look_at_position, requested)
-	params.collision_mask = 1 # Keep NPCs out of the camera obstruction test.
-	params.exclude = [hero.get_rid()]
-	if is_instance_valid(car_driven):
-		params.exclude.append(car_driven.get_rid())
-	var obstruction := get_world_3d().direct_space_state.intersect_ray(params)
-	var obstructed := not obstruction.is_empty()
-	var destination := requested
-	if obstructed:
-		var point: Vector3 = obstruction["position"]
-		var direction := (requested - look_at_position).normalized()
-		destination = point - direction * 0.48
-		if destination.distance_to(look_at_position) < 1.25:
-			destination = look_at_position + direction * 1.25
-	var smooth := 14.0 if obstructed else (9.0 if indoors else 7.5)
+	var dir := (requested - look_at_position).normalized()
+	var right := Vector3(dir.z, 0, -dir.x).normalized()
+	if right.length_squared() < 0.1:
+		right = Vector3.RIGHT
+	var up := right.cross(dir).normalized()
+	# Multiple ray probes approximate a sphere and protect the near plane from walls.
+	var probes: Array[Vector3] = [Vector3.ZERO, right * 0.42, -right * 0.42, up * 0.36, -up * 0.36]
+	var best_length := arm_distance
+	var obstructed := false
+	for probe in probes:
+		var params := PhysicsRayQueryParameters3D.create(look_at_position + probe, requested + probe)
+		params.collision_mask = 1
+		params.exclude = [hero.get_rid()]
+		if is_instance_valid(car_driven):
+			params.exclude.append(car_driven.get_rid())
+		var block := get_world_3d().direct_space_state.intersect_ray(params)
+		if not block.is_empty():
+			var impact: Vector3 = block["position"]
+			var allowed := maxf(1.28, impact.distance_to(look_at_position + probe) - 0.50)
+			if allowed < best_length:
+				best_length = allowed
+				obstructed = true
+	var destination := look_at_position + dir * best_length
+	var smooth := 18.0 if obstructed else (9.0 if indoors else 7.5)
 	camera.global_position = camera.global_position.lerp(destination, clampf(delta * smooth, 0.0, 1.0))
 	camera.look_at(look_at_position, Vector3.UP)
 
 
 func rotate_camera(relative: Vector2) -> void:
+	camera_override_timer = 3.0
 	camera_yaw = wrapf(camera_yaw - relative.x * 0.008, -PI, PI)
 	camera_pitch = clampf(camera_pitch + relative.y * 0.0055, deg_to_rad(42.0), deg_to_rad(78.0))
 
@@ -761,7 +776,7 @@ func _input(event: InputEvent) -> void:
 			if stick_pointer == -1 and (event.position - stick_center).length() < 145.0:
 				stick_pointer = event.index
 				update_stick(event.position)
-			elif camera_touch == -1 and event.position.y < ui.size.y - 490.0:
+			elif camera_touch == -1 and event.position.y < stick_outer.position.y - 12.0:
 				camera_touch = event.index
 		elif not event.pressed:
 			if event.index == stick_pointer:
@@ -818,6 +833,17 @@ func update_hud() -> void:
 	var waypoint := mission_point - current_position
 	var heading := waypoint_arrow(waypoint)
 	mission_label.text = "DELIVERY %s %dm  •  %s [%d] %s" % [heading, int(waypoint.length()), "PICKUP" if mission_stage == 0 else "DROP OFF", deliveries, ("%.0fs" % mission_limit) if mission_stage == 1 else ""]
+	var aim_dir := -camera.global_transform.basis.z
+	aim_dir.y = 0.0
+	aim_dir = aim_dir.normalized()
+	var origin := car_driven.global_position if is_instance_valid(car_driven) else hero.global_position
+	var target_world := origin + aim_dir * 10.0 + Vector3(0, 1.2, 0)
+	if camera.is_position_behind(target_world):
+		crosshair_label.visible = false
+	else:
+		crosshair_label.visible = true
+		crosshair_label.position = camera.unproject_position(target_world) - Vector2(17, 20)
+		crosshair_label.size = Vector2(34, 36)
 	var caption := "MOVE: PAD  •  CAMERA: SWIPE SCENE  •  ACTION"
 	if hero.dead:
 		caption = "WASTED  •  RESPAWNING"
@@ -869,6 +895,10 @@ func setup_ui() -> void:
 	ui.add_child(mission_label)
 	weapon_label = make_label(20, Color("#d6edee"))
 	ui.add_child(weapon_label)
+	crosshair_label = make_label(32, Color("#d6fff1"))
+	crosshair_label.text = "+"
+	crosshair_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	ui.add_child(crosshair_label)
 	hint_label = make_label(17, Color("#f3e5c4"))
 	hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	ui.add_child(hint_label)
