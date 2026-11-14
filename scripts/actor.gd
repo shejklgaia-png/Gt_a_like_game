@@ -98,10 +98,15 @@ func select_sidewalk_goal() -> void:
 	var along := rng.randf_range(segment_min, segment_max)
 	previous_distance = INF
 	stalled_time = 0.0
+	# Split opposing pedestrian flows into narrow, consistent passing lanes.
+	# Both lanes stay fully on the sidewalk and inside each zebra crossing.
+	var current_along := global_position.z if sidewalk_axis == 0 else global_position.x
+	var travel_sign := 1.0 if along >= current_along else -1.0
+	var lane_offset := travel_sign * 0.32
 	if sidewalk_axis == 0:
-		target = Vector3(anchor.x, anchor.y, along)
+		target = Vector3(anchor.x + lane_offset, anchor.y, along)
 	else:
-		target = Vector3(along, anchor.y, anchor.z)
+		target = Vector3(along, anchor.y, anchor.z + lane_offset)
 
 
 func _physics_process(delta: float) -> void:
