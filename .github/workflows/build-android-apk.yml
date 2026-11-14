@@ -32,6 +32,8 @@ jobs:
         run: godot --headless --path . --editor --import --quit
       - name: Validate generated game scene
         run: godot --headless --path . --script res://scripts/smoke_test.gd
+      - name: Simulate autonomous traffic and interiors
+        run: godot --headless --path . --script res://scripts/simulation_test.gd
       - name: Build ARM64 debug APK
         run: |
           mkdir -p build
