@@ -105,3 +105,22 @@ Features now included in the prototype:
 **Important:** This is a considerable expansion but is **not a complete 112/112 implementation**. The exact item-by-item status is [ROADMAP_112.md](ROADMAP_112.md). Larger remaining features include intersecting turn traffic, pedestrian avoidance instead of passing through, district streaming, richer motion rigs, nontrivial content, and full Android device tests.
 
 The assets listed above are all constructed procedurally and use no third-party license-dependent binaries.
+
+## v0.3.1 — streetscape clearance and overhead-camera update
+
+- Benches, bins, trees and hydrants now sit beside **mid-block side facades**, not
+  intersection corners. The entire physical footprint must clear both pedestrian
+  walking lanes. Benches face their adjacent building, and retain walkable space
+  in front of the seat.
+- Street lamps moved away from crossing entrances and pedestrian stop lines.
+- Buildings now use distinct, lively color palettes across city blocks; each lot
+  also receives a colorful pastel sidewalk. Roads retain a darker asphalt tone.
+- On-foot camera keeps the player centered from a stable **69-degree overhead
+  angle**, increases its distance from **9.1m to 16.5m**, and smoothly returns to
+  the fixed view after a manual swipe. The camera still avoids obstructing walls;
+  driving retains its heading-follow camera.
+- Street-prop clearance, bench orientation, district color variety and camera
+  recentering are covered by an automated autonomous-scene regression test.
+
+This remains a prototype. Physical Android device testing is needed in addition
+to CI headless tests.
