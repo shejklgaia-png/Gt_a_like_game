@@ -82,8 +82,8 @@ func pedestrian_ahead() -> bool:
 	# Three bumper rays cover the width of the car, not only the centerline.
 	var forward := -global_transform.basis.z
 	for lateral in [-0.72, 0.0, 0.72]:
-		var origin := global_position + Vector3(0, 0.05, 0) + global_transform.basis.x * lateral + forward * 2.25
-		var tip := origin + forward * 7.4
+		var origin: Vector3 = global_position + Vector3(0, 0.05, 0) + global_transform.basis.x * float(lateral) + forward * 2.25
+		var tip: Vector3 = origin + forward * 7.4
 		var params := PhysicsRayQueryParameters3D.create(origin, tip)
 		params.exclude = [get_rid()]
 		var result := get_world_3d().direct_space_state.intersect_ray(params)
