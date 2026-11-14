@@ -4,10 +4,51 @@ class_name PocketSoundBank
 const SAMPLE_RATE := 22050
 var sounds: Dictionary = {}
 var steps: int = 0
+var music: AudioStreamPlayer
 
 func _ready() -> void:
 	for key in ["Handgun", "Rifle", "Shotgun", "Sniper", "Machine Gun", "footstep", "impact", "hurt", "cash", "car_door", "engine", "police", "ui", "death"]:
 		sounds[key] = make_sound(key)
+	music = AudioStreamPlayer.new()
+	music.stream = make_music()
+	music.volume_db = -28.0
+	add_child(music)
+	music.play()
+
+func make_music() -> AudioStreamWAV:
+	# Original 8-second loop: restrained analog bass, low percussion and urban air.
+	var rate := 11025
+	var count := 8 * rate
+	var data := PackedByteArray()
+	data.resize(count * 2)
+	var notes := [55.0, 55.0, 65.4, 55.0, 49.0, 55.0, 73.4, 65.4,
+		55.0, 55.0, 65.4, 82.4, 49.0, 55.0, 65.4, 49.0]
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 4244225
+	for sample in range(count):
+		var sec := float(sample) / float(rate)
+		var beat := fposmod(sec, 0.5)
+		var subdivision := fposmod(sec, 0.25)
+		var note := notes[int(sec / 0.5) % notes.size()]
+		var bass := sin(TAU * note * sec) * 0.18 + sin(TAU * note * 2.0 * sec) * 0.06
+		var kick := sin(TAU * (48.0 + 30.0 * exp(-beat * 17.0)) * beat) * exp(-beat * 19.0) * 0.22
+		var click := rng.randf_range(-1.0, 1.0) * exp(-subdivision * 65.0) * 0.018
+		var drone := sin(TAU * 27.5 * sec) * 0.046
+		var wave := clampf(bass + kick + click + drone, -0.85, 0.85)
+		data.encode_s16(sample * 2, int(wave * 32767.0))
+	var wav := AudioStreamWAV.new()
+	wav.mix_rate = rate
+	wav.format = AudioStreamWAV.FORMAT_16_BITS
+	wav.stereo = false
+	wav.data = data
+	wav.loop_mode = AudioStreamWAV.LOOP_FORWARD
+	wav.loop_begin = 0
+	wav.loop_end = count
+	return wav
+
+func set_indoors(indoor: bool) -> void:
+	if is_instance_valid(music):
+		music.volume_db = -35.0 if indoor else -28.0
 
 func make_sound(kind: String) -> AudioStreamWAV:
 	var length := 0.18
