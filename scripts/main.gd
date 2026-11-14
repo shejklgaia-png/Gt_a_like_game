@@ -5,14 +5,13 @@ const HeroScript = preload("res://scripts/hero.gd")
 const InteriorScript = preload("res://scripts/interior.gd")
 const Shapes = preload("res://scripts/shape_factory.gd")
 const Fx = preload("res://scripts/combat_fx.gd")
+const GameData = preload("res://scripts/gameplay_data.gd")
+const SafeSave = preload("res://scripts/safe_save.gd")
+const SoundBank = preload("res://scripts/sound_bank.gd")
+const MapScript = preload("res://scripts/minimap.gd")
+const PerfScript = preload("res://scripts/perf_overlay.gd")
 
-const WEAPONS := [
-	{"id": "Handgun", "price": 0, "damage": 25.0, "rate": 0.29, "range": 50.0, "ammo": 180},
-	{"id": "Rifle", "price": 650, "damage": 32.0, "rate": 0.14, "range": 75.0, "ammo": 150},
-	{"id": "Shotgun", "price": 450, "damage": 88.0, "rate": 0.78, "range": 24.0, "ammo": 45},
-	{"id": "Sniper", "price": 1100, "damage": 140.0, "rate": 1.20, "range": 130.0, "ammo": 35},
-	{"id": "Machine Gun", "price": 1500, "damage": 18.0, "rate": 0.075, "range": 66.0, "ammo": 350}
-]
+var WEAPONS: Array[Dictionary] = GameData.weapons()
 const SAVE_PATH := "user://pocket_district_save.json"
 
 var city: PocketCity
@@ -49,6 +48,28 @@ var camera_mouse: bool = false
 var carjack_busy: bool = false
 var death_pending: bool = false
 var hurt_overlay: ColorRect
+var sound: PocketSoundBank
+var minimap: PocketMiniMap
+var perf_overlay: PocketPerfOverlay
+var loaded_rounds: Dictionary = {"Handgun": 15}
+var reload_clock: float = 0.0
+var reload_weapon_id: String = ""
+var fire_latched: bool = false
+var last_footstep: float = 0.0
+var hud_update_clock: float = 0.0
+var wanted_cleanup_clock: float = 0.0
+var mission_limit: float = 0.0
+var mission_reward: int = 0
+var mission_failures: int = 0
+var total_earnings: int = 0
+var mission_last_index: int = 0
+var zoom_enabled: bool = false
+var pause_button: Button
+var reload_button: Button
+var aim_button: Button
+var settings_panel: Panel
+var display_message: String = ""
+var display_message_time: float = 0.0
 
 var ui: Control
 var status_label: Label
@@ -71,6 +92,9 @@ var mouse_stick: bool = false
 
 
 func _ready() -> void:
+	sound = SoundBank.new()
+	sound.name = "SoundBank"
+	add_child(sound)
 	setup_lighting()
 	city = CityScript.new()
 	city.name = "OutdoorWorld"
@@ -99,6 +123,7 @@ func _ready() -> void:
 	hero.equip_weapon(String(selected_gun()["id"]))
 	setup_ui()
 	make_mission_marker()
+	sound.play_ui("ui")
 	get_viewport().size_changed.connect(layout_ui)
 	layout_ui()
 
