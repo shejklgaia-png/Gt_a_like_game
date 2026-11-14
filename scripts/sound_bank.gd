@@ -29,7 +29,7 @@ func make_music() -> AudioStreamWAV:
 		var sec := float(sample) / float(rate)
 		var beat := fposmod(sec, 0.5)
 		var subdivision := fposmod(sec, 0.25)
-		var note := notes[int(sec / 0.5) % notes.size()]
+		var note: float = float(notes[int(sec / 0.5) % notes.size()])
 		var bass := sin(TAU * note * sec) * 0.18 + sin(TAU * note * 2.0 * sec) * 0.06
 		var kick := sin(TAU * (48.0 + 30.0 * exp(-beat * 17.0)) * beat) * exp(-beat * 19.0) * 0.22
 		var click := rng.randf_range(-1.0, 1.0) * exp(-subdivision * 65.0) * 0.018
