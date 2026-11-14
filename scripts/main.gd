@@ -283,7 +283,7 @@ func shoot() -> void:
 	var excludes: Array[RID] = [hero.get_rid()]
 	if is_instance_valid(car_driven):
 		excludes.append(car_driven.get_rid())
-	Fx.flash(self, origin, 1.6 if gun_id == "Shotgun" else 1.0)
+	Fx.flash(self, origin, 1.6 if gun_id == "Shotgun" else 1.0, aim)
 	for pellet in range(pellet_count):
 		var rad := deg_to_rad(angular_spread)
 		var r := sqrt(randf()) * rad
