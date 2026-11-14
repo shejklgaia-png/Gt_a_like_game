@@ -92,7 +92,7 @@ func add_street_props() -> void:
 func spawn_traffic() -> void:
 	for i in range(18):
 		var axis := i % 2
-		var travel := 1.0 if (i / 2) % 2 == 0 else -1.0
+		var travel := 1.0 if ((i / 2) % 2) == 0 else -1.0
 		var street := float(rng.randi_range(-3, 3)) * 36.0
 		var lane := street + (2.35 if travel < 0 else -2.35)
 		var car: PocketVehicle = VehicleScene.new()
@@ -113,9 +113,9 @@ func spawn_civilians() -> void:
 		var person: PocketActor = ActorScene.new()
 		var seed_number := rng.randi()
 		if i % 2 == 0:
-			person.position = Vector3(v + 8.0, 0.13, along)
+			person.position = Vector3(v + 6.35, 0.13, along)
 		else:
-			person.position = Vector3(along, 0.13, v + 8.0)
+			person.position = Vector3(along, 0.13, v + 6.35)
 		person.setup(false, person.position, seed_number)
 		person_root.add_child(person)
 		people.append(person)
@@ -123,8 +123,9 @@ func spawn_civilians() -> void:
 
 func add_police_near(at: Vector3, seed_value: int) -> PocketActor:
 	var cop: PocketActor = ActorScene.new()
-	var spawn_offset := Vector3(rng.randf_range(-27, 27), 0, rng.randf_range(-27, 27))
-	cop.position = Vector3(at.x + spawn_offset.x, 0.2, at.z + spawn_offset.z)
+	var street_x := roundf(at.x / 36.0) * 36.0
+	var walk_z := clampf(at.z + rng.randf_range(-19.0, 19.0), -110.0, 110.0)
+	cop.position = Vector3(street_x + 6.35, 0.24, walk_z)
 	cop.setup(true, cop.position, seed_value)
 	police_root.add_child(cop)
 	return cop
