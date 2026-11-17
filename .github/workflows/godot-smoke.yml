@@ -24,3 +24,5 @@ jobs:
         run: godot --headless --path . --script res://scripts/smoke_test.gd
       - name: Run extended autonomous simulation
         run: godot --headless --path . --script res://scripts/simulation_test.gd
+      - name: Run sustained-play and autosave stability regression
+        run: godot --headless --path . --script res://scripts/stability_test.gd
