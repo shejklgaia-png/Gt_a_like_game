@@ -14,6 +14,8 @@ const ResidentDialogue = preload("res://scripts/resident_dialogue.gd")
 
 var WEAPONS: Array[Dictionary] = GameData.weapons()
 const SAVE_PATH := "user://pocket_district_save.json"
+# Test harnesses can redirect saves without touching an actual player save.
+var save_path_override: String = ""
 
 var city: PocketCity
 var hero: PocketHero
@@ -770,8 +772,12 @@ func show_message(message: String) -> void:
 	display_message = message
 	display_message_time = 2.6
 
+func save_destination() -> String:
+	return save_path_override if not save_path_override.is_empty() else SAVE_PATH
+
+
 func load_game() -> void:
-	var decoded: Dictionary = SafeSave.load_json(SAVE_PATH)
+	var decoded: Dictionary = SafeSave.load_json(save_destination())
 	if decoded.is_empty():
 		return
 	cash = maxi(0, int(decoded.get("cash", cash)))
@@ -845,7 +851,7 @@ func save_game() -> void:
 		"equipped": current_weapon,
 		"player_position": [pos.x, pos.y, pos.z]
 	}
-	if not SafeSave.save_json(SAVE_PATH, state):
+	if not SafeSave.save_json(save_destination(), state):
 		push_warning("Save could not be written; last good backup was kept.")
 
 func _input(event: InputEvent) -> void:
