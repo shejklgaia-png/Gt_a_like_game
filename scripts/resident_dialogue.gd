@@ -234,7 +234,7 @@ static func scenario_id(profile: Dictionary, talks: int = 0) -> int:
 	return posmod(offset + posmod(maxi(talks, 0), CONVERSATION_COUNT) * step, CONVERSATION_COUNT)
 
 
-static func make_tree(profile: Dictionary, talks: int = 0, affinity: int = 0) -> Dictionary:
+static func make_tree(profile: Dictionary, talks: int = 0, affinity: int = 0, continuing: bool = false) -> Dictionary:
 	var subjects := catalog()
 	if subjects.size() != SUBJECT_COUNT:
 		return {}
@@ -246,7 +246,9 @@ static func make_tree(profile: Dictionary, talks: int = 0, affinity: int = 0) ->
 	var rng := RandomNumberGenerator.new()
 	rng.seed = int(profile.get("seed", 1)) + posmod(talks, CONVERSATION_COUNT) * 7717 + scenario
 	var greeting: String = GREETINGS[posmod(int(profile.get("greeting", 0)), GREETINGS.size())]
-	if talks == 0:
+	if continuing:
+		greeting = "そういえば、もう一つお話ししたいことがあるんです。"
+	elif talks == 0:
 		greeting = "はじめまして。%sです。" % String(profile.get("name", "住民"))
 	elif affinity >= 6:
 		greeting = "また会えてうれしいです。"
