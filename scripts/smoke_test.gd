@@ -186,6 +186,7 @@ func run_smoke() -> void:
 				return
 	# A complete conversation must reach its ending and persist only that resident's affinity.
 	var speaker: PocketActor = town.people[2]
+	game.resident_relations.erase(str(speaker.resident_id))
 	game.wanted = 0 # A previous combat regression test deliberately raised the wanted level.
 	hero.global_position = speaker.global_position + Vector3(0, 0, 1.0)
 	game.begin_conversation(speaker)
@@ -193,9 +194,11 @@ func run_smoke() -> void:
 		push_error("Conversation panel failed to open")
 		quit(29)
 		return
+	var opening_options: Array = game.conversation_tree["nodes"]["start"]["choices"]
+	var first_option: Dictionary = opening_options[0]
 	game.select_conversation_option(0)
-	if game.conversation_node != "agree":
-		push_error("Dialogue did not enter the chosen branch")
+	if game.conversation_node != String(first_option["next"]):
+		push_error("Dialogue did not enter its randomly selected branch")
 		quit(30)
 		return
 	game.select_conversation_option(0)
@@ -206,7 +209,7 @@ func run_smoke() -> void:
 		quit(31)
 		return
 	var relationship: Dictionary = game.resident_relations.get(str(speaker.resident_id), {})
-	if int(relationship.get("talks", 0)) != 1 or int(relationship.get("affinity", 0)) != 6:
+	if int(relationship.get("talks", 0)) != 1 or int(relationship.get("affinity", 0)) != 4 + int(first_option["affinity"]):
 		push_error("Resident relationship did not follow selected answers")
 		quit(32)
 		return
