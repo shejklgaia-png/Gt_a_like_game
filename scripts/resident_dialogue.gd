@@ -95,8 +95,8 @@ static func make_profile(resident_id: int) -> Dictionary:
 	# The same civilian slot keeps its identity after a reload or respawn.
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 39017 + resident_id * 7919
-	var given := GIVEN_NAMES[posmod(resident_id * 7 + 3, GIVEN_NAMES.size())]
-	var family := FAMILY_NAMES[posmod(resident_id * 11 + 5, FAMILY_NAMES.size())]
+	var given: String = GIVEN_NAMES[posmod(resident_id * 7 + 3, GIVEN_NAMES.size())]
+	var family: String = FAMILY_NAMES[posmod(resident_id * 11 + 5, FAMILY_NAMES.size())]
 	return {
 		"id": resident_id,
 		"name": "%s %s" % [family, given],
@@ -112,7 +112,7 @@ static func make_tree(profile: Dictionary, talks: int = 0, affinity: int = 0) ->
 	# The first topic and later topics differ by person, not by every frame.
 	var topic_id := (int(profile.get("favorite", 0)) + rng.randi_range(0, TOPICS.size() - 1)) % TOPICS.size()
 	var topic: Dictionary = TOPICS[topic_id]
-	var greeting := GREETINGS[int(profile.get("greeting", 0)) % GREETINGS.size()]
+	var greeting: String = GREETINGS[int(profile.get("greeting", 0)) % GREETINGS.size()]
 	if talks == 0:
 		greeting = "はじめまして。%sです。" % String(profile.get("name", "住民"))
 	elif affinity >= 6:
@@ -187,7 +187,7 @@ static func is_valid_tree(tree: Dictionary) -> bool:
 		if choices.is_empty():
 			terminals += 1
 		for choice in choices:
-			if not choice is Dictionary:
+			if not (choice is Dictionary):
 				return false
 			var dest := String(choice.get("next", ""))
 			if not nodes.has(dest) or String(choice.get("text", "")).strip_edges() == "":
