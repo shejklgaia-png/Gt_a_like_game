@@ -186,6 +186,7 @@ func run_smoke() -> void:
 				return
 	# A complete conversation must reach its ending and persist only that resident's affinity.
 	var speaker: PocketActor = town.people[2]
+	game.wanted = 0 # A previous combat regression test deliberately raised the wanted level.
 	hero.global_position = speaker.global_position + Vector3(0, 0, 1.0)
 	game.begin_conversation(speaker)
 	if not speaker.chatting or not game.dialogue_panel.visible or game.conversation_node != "start":
