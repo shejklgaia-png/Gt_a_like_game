@@ -61,12 +61,20 @@ This is a **playable prototype**, not a content-complete GTA clone. Cars use sim
 Saved data is stored by Godot under `user://pocket_district_save.json`. This file is not in the Git repository. Reinstalling or clearing app data can delete the save.
 
 
-## Neighborhood conversations (first playable version)
+## Neighborhood conversations — 2,000 authored variations (25 genres)
+
+- The game now contains **200 individually written subjects** with their own concrete opening observation, detail, counterpoint and yes/no question, grouped into **25 genres of 8 subjects each**.
+- Every subject has **10 distinct dialogue approaches** (recent interest, memory, discovery, street conversation, unexpected angle, walk reflection, imagination, long discussion, differing tastes, and small discovery), giving **exactly 2,000 authored-context scenarios** before the additional player-choice branching.
+- Each resident traverses all 2,000 scenarios in a resident-specific deterministic permutation with **no repeats until that resident has seen all 2,000**. Resident identity, conversation count and friendship remain persistent across saves.
+- Four-level dialogue branches have topic-appropriate agreement, detail, respectful disagreement, yes/no follow-up, personal answer and endings. Each generated graph is acyclic, has only valid options, and reaches an ending. Variation does not rely on external generative AI.
+- The smoke test enumerates the entire 2,000-scenario permutation, validates each dialogue graph, verifies 25 genre categories, and exercises resident selection and saved relationship changes.
+
+### Talking with residents
 
 - Walk near a civilian to see **ACTION: 話す**. Press **ACTION** (mobile) or **E/F** (desktop) to talk. Building entrances take priority when you are right at the door.
 - Pick one of the displayed replies using the touch buttons or desktop keys **1–4**. Tap **会話を終える** (or press **E/F/Esc**) to leave.
-- Each of the 46 civilian slots gets a persistent Japanese name, deterministic personality seed, favorite topic, conversation visit count and friendship/affinity score.
-- The first interaction introduces the resident; later chats vary the topic, branch order and number of initial branches. Responses are tied to the current topic and only point to valid successor nodes; there is no free-form text generation or unpredictable LLM dependency.
+- Each of the 46 civilian slots gets a persistent Japanese name, deterministic personality seed, preferred genre, conversation visit count and friendship/affinity score.
+- The first interaction introduces the resident; later chats vary the scenario, branch order and number of initial branches. Responses are tied to the current topic and only point to valid successor nodes; there is no free-form text generation or unpredictable LLM dependency.
 - Civilians pause walking and turn toward the player during a conversation. Attacks, panic, wanted status, moving out of range and player injury/death end the interaction safely.
 - Relationships are saved as the optional \`residents\` object in \`user://pocket_district_save.json\`; older saves continue to load.
 - The headless smoke test validates every civilian's conversation graph and checks an actual dialogue path plus relationship persistence.
