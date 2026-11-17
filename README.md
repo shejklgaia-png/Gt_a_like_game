@@ -145,6 +145,37 @@ This remains a prototype. Physical Android device testing is needed in addition
 to CI headless tests.
 
 
+
+### Rich specialist conversations — no dialogue-length cap
+
+All **200 existing subjects across 25 genres** now have four original,
+subject-specific knowledge passages in addition to their original introductory
+texts: (1) a beginner-friendly explanation of how it works, (2) an unexpected
+fact, (3) a fictional but plausible professional "fieldwork / workplace
+relatability" anecdote, and (4) a safe everyday observation or example.
+That adds **800 individually authored depth passages**; the prior 10 opening
+approaches still yield 2,000 distinct subject/approach combinations. These
+professional anecdotes are **fictional game dialogue**, not quotations from
+real people or a claim that every resident is a credentialed specialist.
+
+The conversation tree now has an explorable **Knowledge Hub**. From ordinary
+small talk, players can ask for the mechanism, surprising fact, professional
+experience or beginner example, ask a further question, return to the hub,
+or advance to another subject. **A conversation has no fixed number of replies**:
+topic-to-topic continuation generates one compact tree at a time and can repeat
+indefinitely (the finite 2,000 opening combinations cycle after their full
+sequence). On mobile, lengthy explanations scroll within a dialogue panel while
+the response buttons stay accessible.
+
+Each citizen has one consistent, randomized specialist field and job-like role.
+Conversation count and the new separately persisted \`topics_seen\` cursor
+remain specific to that citizen; older saves without the new field work through
+fallback migration. Relationships are saved on autosave and on closing dialogue
+rather than rewriting the save file for every sentence. The automated
+conversation regression exhaustively checks all 2,000 possible trees, explores
+all four depth types and performs 80 consecutive topic changes without ending
+a conversation.
+
 ## Android editor: game subprocess stops without a script error
 
 If the Android Godot editor prints `--- Debugging process stopped ---` after a few
