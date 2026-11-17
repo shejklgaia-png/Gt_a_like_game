@@ -312,7 +312,7 @@ static func is_valid_tree(tree: Dictionary) -> bool:
 	var reached: Dictionary = {}
 	var terminals := 0
 	while not pending.is_empty():
-		var current := pending.pop_front()
+		var current: String = pending.pop_front()
 		if reached.has(current):
 			continue
 		if not nodes.has(current) or not levels.has(current):
