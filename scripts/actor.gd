@@ -43,6 +43,8 @@ var path_queue: Array[Vector3] = []
 var crosswalk_waiting: bool = false
 var crosswalk_active: bool = false
 var panic_time: float = 0.0
+var strolling_speed: float = 2.1
+var stroll_pause: float = 0.0
 var navigation: PocketNavGrid
 var pursuit_route := PackedVector2Array()
 var pursuit_index: int = 0
@@ -57,6 +59,9 @@ func setup(is_officer: bool, initial_anchor: Vector3, seed_value: int, p_axis: i
 	anchor = initial_anchor
 	target = anchor
 	rng.seed = seed_value
+	if not officer:
+		# Stable per-resident pace; the original identical 2.1 m/s crowds looked mechanical.
+		strolling_speed = rng.randf_range(1.75, 2.45)
 	var along: float = anchor.z if sidewalk_axis == 0 else anchor.x
 	var block_index := floori(along / 36.0)
 	segment_min = float(block_index) * 36.0 + 6.8
@@ -163,6 +168,7 @@ func flee_from(at: Vector3) -> void:
 		return
 	var away := global_position - at
 	panic_time = 5.0
+	stroll_pause = 0.0 # A startled pedestrian abandons any relaxed curbside pause.
 	var along := away.z if sidewalk_axis == 0 else away.x
 	var delta := 12.0 if along >= 0.0 else -12.0
 	var axis_value := global_position.z if sidewalk_axis == 0 else global_position.x
@@ -253,15 +259,20 @@ func _physics_process(delta: float) -> void:
 		else:
 			target = anchor
 	elif Vector2(global_position.x - target.x, global_position.z - target.z).length() < 0.85:
+		# A brief pause at ordinary sidewalk destinations gives citizens natural
+		# rhythms. Never pause at a crosswalk approach or mid-crossing.
+		if not officer and not crosswalk_active and path_queue.is_empty() and rng.randf() < 0.14:
+			stroll_pause = rng.randf_range(0.55, 1.45)
 		advance_waypoint()
 	var direction := target - global_position
 	direction.y = 0
 	var attack_lock := attack_clock >= 0.0
 	var stop_distance := 1.2 if officer and engage else 0.72
 	var signal_wait := not officer and crosswalk_waiting and direction.length() < 0.9 and not TrafficRules.pedestrians_have_green(sidewalk_axis)
-	var is_walking := direction.length() > stop_distance and not attack_lock and not signal_wait
+	stroll_pause = maxf(0.0, stroll_pause - delta)
+	var is_walking := direction.length() > stop_distance and not attack_lock and not signal_wait and stroll_pause <= 0.0
 	if is_walking:
-		var speed := 5.2 if officer and engage else (4.7 if panic_time > 0.0 else 2.1)
+		var speed := 5.2 if officer and engage else (4.7 if panic_time > 0.0 else strolling_speed)
 		var unit_dir := direction.normalized()
 		velocity.x = unit_dir.x * speed
 		velocity.z = unit_dir.z * speed
