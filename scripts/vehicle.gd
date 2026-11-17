@@ -37,6 +37,7 @@ func setup(p_axis: int, p_travel: float, p_lane: float, color: Color) -> void:
 func _ready() -> void:
 	collision_layer = 8
 	collision_mask = 15 # Road/buildings, pedestrians, player and other vehicles.
+	floor_snap_length = 0.65 # Stay on freeway ramps and do not float off downhill sections.
 	var shape := CollisionShape3D.new()
 	var box_shape := BoxShape3D.new()
 	box_shape.size = Vector3(2.3, 1.45, 4.5)
@@ -148,8 +149,12 @@ func _physics_process(delta: float) -> void:
 			velocity.x = correction
 		else:
 			velocity.z = correction
+	# Previously cars had no vertical motion, so elevated roads were scenery.
+	# Gravity plus floor snapping makes both elevated sections and exit ramps
+	# traversable by the player while retaining normal AI lane following.
+	velocity.y = -1.0 if is_on_floor() else velocity.y - 19.6 * delta
 	move_and_slide()
-	total_driven += velocity.length() * delta
+	total_driven += Vector2(velocity.x, velocity.z).length() * delta
 	if drive_speed < 0.2:
 		stationary_time += delta
 	else:
