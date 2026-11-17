@@ -3,9 +3,14 @@ class_name PocketInterior
 
 const Shapes = preload("res://scripts/shape_factory.gd")
 const LootItem = preload("res://scripts/loot_item.gd")
+const Actor = preload("res://scripts/actor.gd")
+const Furniture = preload("res://scripts/furniture_catalog.gd")
 const INTERIOR_ORIGIN := Vector3(920.0, 0.0, 920.0)
 var active_id: String = ""
 var loot: PocketLoot
+var occupants: Array[PocketActor] = []
+var room_furniture: Node3D
+var home_mode: bool = false
 
 
 static func make_layout(building_id: String) -> Dictionary:
@@ -52,8 +57,11 @@ static func make_layout(building_id: String) -> Dictionary:
 	}
 
 
-func display_layout(building_id: String, layout: Dictionary, loot_taken: bool = false) -> void:
+func display_layout(building_id: String, layout: Dictionary, loot_taken: bool = false, business: String = "general", owned_home: bool = false, furniture_items: Array = [], visit: int = 0) -> void:
 	active_id = building_id
+	home_mode = owned_home
+	loot = null
+	occupants.clear()
 	for old_node in get_children():
 		remove_child(old_node)
 		old_node.queue_free()
@@ -71,6 +79,7 @@ func display_layout(building_id: String, layout: Dictionary, loot_taken: bool = 
 	Shapes.box(self, Vector3(0, 0.08, 8.84), Vector3(2.7, 0.06, 0.16), Color("#e1bd5a"))
 	Shapes.sign3d(self, "EXIT", Vector3(0, 2.80, 8.8), Color("#ffdf9d"))
 	var layout_type := int(layout.get("template", 0))
+	set_meta("room_template", layout_type)
 	if layout_type == 0:
 		partition_vertical(-1.0, wall_color)
 	elif layout_type == 1:
@@ -82,7 +91,7 @@ func display_layout(building_id: String, layout: Dictionary, loot_taken: bool = 
 		partition_horizontal(2.0, wall_color)
 		partition_vertical(-3.8, wall_color)
 	var colors := [Color("#5f8791"), Color("#bd9b71"), Color("#86698d"), Color("#6d896e")]
-	for prop in layout.get("props", []):
+	for prop in ([] if home_mode else layout.get("props", [])):
 		var px := float(prop.get("x", 0.0))
 		var pz := float(prop.get("z", 0.0))
 		if px > -1.8 and px < 1.8 and pz > 5.0:
@@ -98,12 +107,21 @@ func display_layout(building_id: String, layout: Dictionary, loot_taken: bool = 
 			Shapes.box(self, Vector3(px, 0.41, pz), Vector3(0.20, 0.84, 0.20), Color("#52575d"))
 		else:
 			Shapes.box(self, Vector3(px, 0.55, pz), Vector3(0.88, 1.1, 0.88), color, true)
-	loot = LootItem.new()
-	loot.name = "SearchableLoot"
-	loot.claimed = loot_taken
-	loot.worth = maxi(30, int(layout.get("loot_value", 120)))
-	loot.position = Vector3(4.5, 0.77, 5.2)
-	add_child(loot)
+	if not home_mode:
+		loot = LootItem.new()
+		loot.name = "SearchableLoot"
+		loot.claimed = loot_taken
+		loot.worth = maxi(30, int(layout.get("loot_value", 120)))
+		loot.position = Vector3(4.5, 0.77, 5.2)
+		add_child(loot)
+	room_furniture = Node3D.new()
+	room_furniture.name = "PlacedFurniture"
+	add_child(room_furniture)
+	for record in furniture_items:
+		if record is Dictionary:
+			Furniture.place(room_furniture, record)
+	if not home_mode:
+		populate_interior(building_id, business, visit)
 	var lamp := OmniLight3D.new()
 	lamp.position = Vector3(0, 3.75, 0)
 	lamp.light_color = Color("#f0e5d0")
@@ -132,3 +150,72 @@ func search_loot(at: Vector3) -> int:
 	if loot_near(at):
 		return loot.collect()
 	return 0
+
+
+func populate_interior(building_id: String, business: String, visit: int = 0) -> void:
+	# One to four inhabitants, instantiated only in the currently active room.
+	# Most visits have exclusively civilians. Nightlife quarters modestly raise
+	# the chance of encountering a hostile mafia group.
+	var random := RandomNumberGenerator.new()
+	random.seed = abs(building_id.hash()) * 17 + maxi(visit, 0) * 13007 + 151
+	var chance := 0.20 if business in ["club", "lounge"] else 0.10
+	var hostile_visit: bool = random.randf() < chance
+	var quantity: int = random.randi_range(1, 4)
+	var positions := [
+		Vector3(-5.9, 0.12, -5.9), Vector3(5.9, 0.12, -5.9),
+		Vector3(-5.9, 0.12, 3.4), Vector3(5.9, 0.12, 3.4)
+	]
+	for index in range(quantity):
+		var person: PocketActor = Actor.new()
+		person.name = "Mafia" if hostile_visit and index == quantity - 1 else "Civilian"
+		person.position = positions[index]
+		person.mafia = hostile_visit and index == quantity - 1
+		person.indoor_mode = true
+		person.setup(false, person.position, random.randi())
+		add_child(person)
+		occupants.append(person)
+
+
+func arm_hostiles(player: Node3D) -> void:
+	for person in occupants:
+		if is_instance_valid(person) and person.mafia and not person.dead:
+			person.chase_target = player
+
+
+func valid_furniture_position(local: Vector3, kind: String, existing: Array) -> bool:
+	if not home_mode or Furniture.find(kind).is_empty():
+		return false
+	var size: Vector2 = Furniture.find(kind)["size"]
+	var margin: float = maxf(size.x, size.y) * 0.5 + 0.5
+	if absf(local.x) > 8.0 - margin or absf(local.z) > 8.0 - margin:
+		return false
+	# Exit space and broad center-to-exit approach remain accessible.
+	if local.z > 3.8 and absf(local.x) < 2.5 + size.x * 0.5:
+		return false
+	# Keep major partition walls free. The same room template remains valid.
+	if int(get_meta("room_template", -1)) == 0 and absf(local.x + 1.0) < 1.1 + size.x * 0.5:
+		return false
+	if int(get_meta("room_template", -1)) == 1 and absf(local.z + 1.0) < 1.1 + size.y * 0.5:
+		return false
+	if int(get_meta("room_template", -1)) == 2 and (absf(local.x - 2.2) < 1.1 + size.x * 0.5 or absf(local.z + 3.8) < 1.1 + size.y * 0.5):
+		return false
+	if int(get_meta("room_template", -1)) == 3 and (absf(local.x + 3.8) < 1.1 + size.x * 0.5 or absf(local.z - 2.0) < 1.1 + size.y * 0.5):
+		return false
+	for item in existing:
+		if not (item is Dictionary):
+			continue
+		var other: Dictionary = Furniture.find(String(item.get("kind", "")))
+		if other.is_empty():
+			continue
+		var other_size: Vector2 = other["size"]
+		var dx: float = absf(local.x - float(item.get("x", 0.0)))
+		var dz: float = absf(local.z - float(item.get("z", 0.0)))
+		if dx < (size.x + other_size.x) * 0.5 + 0.4 and dz < (size.y + other_size.y) * 0.5 + 0.4:
+			return false
+	return true
+
+
+func add_furniture(record: Dictionary) -> bool:
+	if not home_mode or not is_instance_valid(room_furniture):
+		return false
+	return Furniture.place(room_furniture, record) != null
