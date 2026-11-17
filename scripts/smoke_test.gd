@@ -169,6 +169,56 @@ func run_smoke() -> void:
 		push_error("Versioned mission save/load is incorrect")
 		quit(24)
 		return
+	# Every resident has a stable identity and a fully connected, finite dialogue tree.
+	var dialogue_library = load("res://scripts/resident_dialogue.gd")
+	for resident_index in range(town.people.size()):
+		var civilian: PocketActor = town.people[resident_index]
+		if civilian.resident_id != resident_index:
+			push_error("Resident identity is not stable for slot %d" % resident_index)
+			quit(27)
+			return
+		var resident_profile: Dictionary = dialogue_library.make_profile(resident_index)
+		for talk_index in range(3):
+			var branches: Dictionary = dialogue_library.make_tree(resident_profile, talk_index)
+			if not dialogue_library.is_valid_tree(branches):
+				push_error("Broken dialogue branches for resident %d, visit %d" % [resident_index, talk_index])
+				quit(28)
+				return
+	# A complete conversation must reach its ending and persist only that resident's affinity.
+	var speaker: PocketActor = town.people[2]
+	hero.global_position = speaker.global_position + Vector3(0, 0, 1.0)
+	game.begin_conversation(speaker)
+	if not speaker.chatting or not game.dialogue_panel.visible or game.conversation_node != "start":
+		push_error("Conversation panel failed to open")
+		quit(29)
+		return
+	game.select_conversation_option(0)
+	if game.conversation_node != "agree":
+		push_error("Dialogue did not enter the chosen branch")
+		quit(30)
+		return
+	game.select_conversation_option(0)
+	game.select_conversation_option(0)
+	game.select_conversation_option(0)
+	if game.conversation_node != "friendly_bye":
+		push_error("Dialogue could not reach its expected ending")
+		quit(31)
+		return
+	var relationship: Dictionary = game.resident_relations.get(str(speaker.resident_id), {})
+	if int(relationship.get("talks", 0)) != 1 or int(relationship.get("affinity", 0)) != 6:
+		push_error("Resident relationship did not follow selected answers")
+		quit(32)
+		return
+	game.end_conversation()
+	if speaker.chatting or game.dialogue_panel.visible:
+		push_error("Conversation failed to release civilian movement and UI")
+		quit(33)
+		return
+	var saved_chat: Dictionary = load("res://scripts/safe_save.gd").load_json(game.SAVE_PATH)
+	if not saved_chat.get("residents", {}).has(str(speaker.resident_id)):
+		push_error("Resident relationships were not saved")
+		quit(34)
+		return
 	game.toggle_settings()
 	if not game.settings_panel.visible or not paused:
 		push_error("Pause panel failed to suspend gameplay")
