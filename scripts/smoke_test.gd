@@ -169,8 +169,33 @@ func run_smoke() -> void:
 		push_error("Versioned mission save/load is incorrect")
 		quit(24)
 		return
-	# Every resident has a stable identity and a fully connected, finite dialogue tree.
+	# All 2,000 scenarios are unique, reachable, finite and internally coherent.
 	var dialogue_library = load("res://scripts/resident_dialogue.gd")
+	if not dialogue_library.is_valid_catalog() or dialogue_library.CONVERSATION_COUNT != 2000:
+		push_error("Conversation catalog does not contain 200 unique topics across 25 genres and 10 approaches")
+		quit(35)
+		return
+	var all_scenarios: Dictionary = {}
+	var all_genres: Dictionary = {}
+	var first_profile: Dictionary = dialogue_library.make_profile(0)
+	for visit in range(dialogue_library.CONVERSATION_COUNT):
+		var scenario: Dictionary = dialogue_library.make_tree(first_profile, visit)
+		if not dialogue_library.is_valid_tree(scenario):
+			push_error("Invalid dialogue graph for visit %d" % visit)
+			quit(36)
+			return
+		var scenario_key := int(scenario.get("scenario_id", -1))
+		if scenario_key < 0 or scenario_key >= 2000 or all_scenarios.has(scenario_key):
+			push_error("Duplicated or missing conversation scenario at visit %d" % visit)
+			quit(37)
+			return
+		all_scenarios[scenario_key] = true
+		all_genres[String(scenario.get("genre", ""))] = true
+	if all_scenarios.size() != 2000 or all_genres.size() != 25:
+		push_error("The conversation permutation does not cover all 2,000 scenarios and 25 genres")
+		quit(38)
+		return
+	# Every resident has a stable identity and a fully connected, finite dialogue tree.
 	for resident_index in range(town.people.size()):
 		var civilian: PocketActor = town.people[resident_index]
 		if civilian.resident_id != resident_index:
