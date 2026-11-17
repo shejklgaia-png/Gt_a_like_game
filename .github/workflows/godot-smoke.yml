@@ -9,14 +9,19 @@ on:
 
 jobs:
   godot-smoke:
+    name: Godot ${{ matrix.godot-version }} headless stability
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        godot-version: ["4.4.1", "4.7.2"]
     steps:
       - uses: actions/checkout@v4
       - name: Install Godot
         uses: chickensoft-games/setup-godot@v2
         with:
-          version: 4.4.1
+          version: ${{ matrix.godot-version }}
           use-dotnet: false
       - name: Import Godot project
         run: godot --headless --path . --editor --import --quit
