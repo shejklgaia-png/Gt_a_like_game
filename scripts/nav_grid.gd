@@ -2,8 +2,8 @@ extends RefCounted
 class_name PocketNavGrid
 ## Reusable two-meter A* lattice, blocked by actual building footprints.
 const CELL: float = 2.0
-const START: int = -67
-const WIDTH: int = 135
+const START: int = -91
+const WIDTH: int = 183
 var grid: AStarGrid2D
 
 func _init() -> void:
