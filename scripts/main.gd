@@ -75,6 +75,9 @@ var settings_panel: Panel
 var display_message: String = ""
 var display_message_time: float = 0.0
 var camera_override_timer: float = 0.0
+# Android editor launches the project alongside editor UI and needs a smaller simulation budget.
+var mobile_optimization_enabled: bool = OS.get_name() == "Android"
+var mobile_lod_clock: float = 0.0
 var crosshair_label: Label
 var engine_audio: AudioStreamPlayer3D
 
@@ -108,6 +111,8 @@ var dialogue_exit: Button
 
 
 func _ready() -> void:
+	if mobile_optimization_enabled and (Engine.max_fps <= 0 or Engine.max_fps > 45):
+		Engine.max_fps = 45
 	sound = SoundBank.new()
 	sound.name = "SoundBank"
 	add_child(sound)
@@ -136,6 +141,8 @@ func _ready() -> void:
 	for person in city.people:
 		connect_actor(person)
 	load_game()
+	if mobile_optimization_enabled:
+		city.update_mobile_activity(hero.global_position)
 	hero.equip_weapon(String(selected_gun()["id"]))
 	setup_ui()
 	make_mission_marker()
@@ -223,6 +230,11 @@ func _physics_process(delta: float) -> void:
 func _process(delta: float) -> void:
 	if hero == null:
 		return
+	if mobile_optimization_enabled and not indoors:
+		mobile_lod_clock += delta
+		if mobile_lod_clock >= 0.6:
+			mobile_lod_clock = 0.0
+			city.update_mobile_activity(hero.global_position, car_driven)
 	if dialogue_panel != null and dialogue_panel.visible:
 		if not is_instance_valid(conversation_actor) or conversation_actor.dead or conversation_actor.panic_time > 0.0 or hero.dead or wanted > 0 or hero.global_position.distance_to(conversation_actor.global_position) > 4.5:
 			end_conversation()
