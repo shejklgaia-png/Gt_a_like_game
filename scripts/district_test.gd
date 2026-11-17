@@ -34,6 +34,17 @@ func run() -> void:
 	if elevated == null:
 		abort("Expressway is not present", 113)
 		return
+	# Curved ring and freeway must be used by actual traffic, not just scenery.
+	if city.cars[14].npc_route.size() < 12 or city.cars[15].npc_route.size() < 12 or city.cars[16].npc_route.size() < 6 or city.cars[17].npc_route.size() < 6:
+		abort("Scenic curved road/freeway traffic routes were not assigned", 130)
+		return
+	var driving_car: PocketVehicle = city.cars[14]
+	var start_position: Vector3 = driving_car.global_position
+	for tick in range(45):
+		await physics_frame
+	if driving_car.global_position.distance_to(start_position) < 0.5:
+		abort("Curved-perimeter traffic car cannot advance", 131)
+		return
 	var physical_span := false
 	var slope := false
 	for piece in elevated.get_children():
