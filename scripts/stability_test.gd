@@ -18,6 +18,7 @@ func run_stability() -> void:
 		fail("Stability test scene could not be loaded", 80)
 		return
 	var game = scene.instantiate()
+	game.save_path_override = "user://pocket_district_stability_test.json"
 	root.add_child(game)
 	await process_frame
 	await physics_frame
@@ -44,6 +45,7 @@ func run_stability() -> void:
 	# an existing player's save data. Explicit save writes also exercise backup rotation.
 	for i in range(3):
 		game.autosave_clock = 18.1
+		await process_frame
 		await process_frame
 		var data: Dictionary = SafeSave.load_json(game.SAVE_PATH)
 		if data.is_empty() or not data.has("residents") or int(data.get("version", 0)) != 2:
