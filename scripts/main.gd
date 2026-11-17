@@ -110,6 +110,9 @@ var dialogue_text: Label
 var dialogue_scroll: ScrollContainer
 var dialogue_options: Array[Button] = []
 var dialogue_exit: Button
+var dialogue_next: Button
+var conversation_seen: Dictionary = {}
+var conversation_displayed_options: Array[Dictionary] = []
 var session_diagnostics: PocketSessionDiagnostics
 
 
@@ -1141,6 +1144,10 @@ func create_dialogue_ui() -> void:
 		choice.pressed.connect(select_conversation_option.bind(index))
 		dialogue_options.append(choice)
 		stack.add_child(choice)
+	dialogue_next = make_button("別の話題", Color("#476053"))
+	dialogue_next.custom_minimum_size = Vector2(0, 44)
+	dialogue_next.pressed.connect(continue_conversation)
+	stack.add_child(dialogue_next)
 	dialogue_exit = make_button("会話を終える", Color("#68545e"))
 	dialogue_exit.custom_minimum_size = Vector2(0, 52)
 	dialogue_exit.pressed.connect(end_conversation)
@@ -1167,6 +1174,7 @@ func begin_conversation(resident: PocketActor) -> void:
 	record["topics_seen"] = cursor + 1
 	resident_relations[key] = record
 	conversation_tree = tree
+	conversation_seen = tree.get("already_uttered", {}).duplicate(true)
 	conversation_node = String(tree["start"])
 	conversation_actor = resident
 	resident.chatting = true
@@ -1181,25 +1189,25 @@ func begin_conversation(resident: PocketActor) -> void:
 func select_conversation_option(index: int) -> void:
 	if dialogue_panel == null or not dialogue_panel.visible:
 		return
+	if index < 0 or index >= conversation_displayed_options.size():
+		return
+	var choice: Dictionary = conversation_displayed_options[index]
+	var destination: String = String(choice["next"])
+	if conversation_seen.has(destination):
+		return
+	conversation_seen[destination] = true
 	var nodes: Dictionary = conversation_tree.get("nodes", {})
-	var current: Dictionary = nodes.get(conversation_node, {})
-	var choices: Array = current.get("choices", [])
-	if index < 0 or index >= choices.size():
+	if not nodes.has(destination):
 		return
-	var choice: Dictionary = choices[index]
+	conversation_node = destination
 	if is_instance_valid(conversation_actor):
-		var key := str(conversation_actor.resident_id)
+		var key: String = str(conversation_actor.resident_id)
 		var record: Dictionary = resident_relations.get(key, {"talks": 1, "affinity": 0})
-		record["affinity"] = clampi(int(record.get("affinity", 0)) + int(choice.get("affinity", 0)), 0, 100)
+		record["affinity"] = clampi(int(record.get("affinity", 0)) + 1, 0, 100)
 		resident_relations[key] = record
-	if String(choice["next"]) == "next_topic":
-		continue_conversation()
-		return
-	conversation_node = String(choice["next"])
 	sound.play_ui("ui")
 	update_conversation_panel()
-	# Longer conversations should not rewrite the save file on every sentence.
-	# Periodic autosave and end_conversation still persist the relationships.
+	# Persist periodically and on close, not on every displayed paragraph.
 
 
 func continue_conversation() -> void:
@@ -1220,6 +1228,7 @@ func continue_conversation() -> void:
 	record["topics_seen"] = cursor + 1
 	resident_relations[key] = record
 	conversation_tree = tree
+	conversation_seen = tree.get("already_uttered", {}).duplicate(true)
 	conversation_node = String(tree["start"])
 	sound.play_ui("ui")
 	update_conversation_panel()
@@ -1230,18 +1239,23 @@ func update_conversation_panel() -> void:
 		return
 	var profile: Dictionary = ResidentDialogue.make_profile(conversation_actor.resident_id)
 	var record: Dictionary = resident_relations.get(str(conversation_actor.resident_id), {})
-	dialogue_speaker.text = "%s  ♥ %d  ・  %s" % [profile["name"], int(record.get("affinity", 0)), String(conversation_tree.get("topic", "雑談"))]
+	dialogue_speaker.text = "%s  ♥ %d  ・  %s" % [profile["name"], int(record.get("affinity", 0)), String(conversation_tree.get("topic", ""))]
 	var node: Dictionary = conversation_tree["nodes"].get(conversation_node, {})
-	dialogue_text.text = String(node.get("text", "また話しましょう。"))
+	dialogue_text.text = String(node.get("text", ""))
 	if dialogue_scroll != null:
 		dialogue_scroll.scroll_vertical = 0
+	conversation_displayed_options.clear()
 	var choices: Array = node.get("choices", [])
+	for option in choices:
+		var destination: String = String(option.get("next", ""))
+		if not conversation_seen.has(destination):
+			conversation_displayed_options.append(option)
 	for i in range(dialogue_options.size()):
-		var button := dialogue_options[i]
-		button.visible = i < choices.size()
+		var button: Button = dialogue_options[i]
+		button.visible = i < conversation_displayed_options.size()
 		if button.visible:
-			button.text = "%d. %s" % [i + 1, String(choices[i]["text"])]
-	dialogue_exit.text = "またね / 閉じる" if choices.is_empty() else "会話を終える"
+			button.text = "%d. %s" % [i + 1, String(conversation_displayed_options[i]["text"])]
+	dialogue_exit.text = "会話を終える"
 
 
 func end_conversation() -> void:
@@ -1252,6 +1266,8 @@ func end_conversation() -> void:
 		conversation_actor.chat_target = null
 	conversation_actor = null
 	conversation_tree.clear()
+	conversation_seen.clear()
+	conversation_displayed_options.clear()
 	conversation_node = ""
 	dialogue_panel.visible = false
 	stick_value = Vector2.ZERO
