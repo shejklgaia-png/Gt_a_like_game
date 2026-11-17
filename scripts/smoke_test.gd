@@ -169,6 +169,32 @@ func run_smoke() -> void:
 		push_error("Versioned mission save/load is incorrect")
 		quit(24)
 		return
+	# The new perimeter and elevated freeway lie beyond the old |x,z|<120
+	# save bounds. Both exterior ground and elevated positions must round-trip.
+	var initial_position: Vector3 = hero.global_position
+	game.save_path_override = "user://pocket_district_outer_route_test.json"
+	for saved_point in [Vector3(128.0, 0.3, 90.0), Vector3(0.0, 7.3, 137.0)]:
+		hero.global_position = saved_point
+		game.save_game()
+		hero.global_position = Vector3(18.0, 0.3, -34.0)
+		game.load_game()
+		if hero.global_position.distance_to(saved_point) > 0.02:
+			push_error("Outer route or freeway save position did not round-trip: %s" % str(saved_point))
+			quit(73)
+			return
+	game.save_path_override = ""
+	hero.global_position = initial_position
+	# The destination compass uses projected camera axes, not world east/north.
+	var camera_right: Vector3 = game.camera.global_transform.basis.x
+	var camera_up: Vector3 = game.camera.global_transform.basis.y
+	if game.waypoint_arrow(Vector3(camera_right.x, 0, camera_right.z) * 10.0) != "→":
+		push_error("Waypoint arrow does not align with screen right")
+		quit(74)
+		return
+	if game.waypoint_arrow(Vector3(camera_up.x, 0, camera_up.z) * 10.0) != "↑":
+		push_error("Waypoint arrow does not align with screen up")
+		quit(75)
+		return
 	# The 2,000 configurations contain no stock dialogue joins: spoken text
 	# must be made solely from a topic's individually authored paragraphs.
 	var dialogue_library = load("res://scripts/resident_dialogue.gd")
