@@ -107,6 +107,7 @@ var conversation_node: String = ""
 var dialogue_panel: Panel
 var dialogue_speaker: Label
 var dialogue_text: Label
+var dialogue_scroll: ScrollContainer
 var dialogue_options: Array[Button] = []
 var dialogue_exit: Button
 var session_diagnostics: PocketSessionDiagnostics
@@ -821,7 +822,8 @@ func load_game() -> void:
 			if not slot.is_valid_int() or int(slot) < 0 or int(slot) >= city.people.size():
 				continue
 			resident_relations[slot] = {
-				"talks": clampi(int(resident_value.get("talks", 0)), 0, 100000),
+				"talks": maxi(0, int(resident_value.get("talks", 0))),
+				"topics_seen": maxi(0, int(resident_value.get("topics_seen", resident_value.get("talks", 0)))),
 				"affinity": clampi(int(resident_value.get("affinity", 0)), 0, 100)
 			}
 	looted_buildings.clear()
@@ -1117,13 +1119,21 @@ func create_dialogue_ui() -> void:
 	var stack := VBoxContainer.new()
 	stack.add_theme_constant_override("separation", 8)
 	padding.add_child(stack)
-	dialogue_speaker = make_label(25, Color("#f6d797"))
+	dialogue_speaker = make_label(21, Color("#f6d797"))
 	stack.add_child(dialogue_speaker)
-	dialogue_text = make_label(20, Color("#f3f6fb"))
+	# Keep answers fixed and readable while allowing arbitrarily long paragraphs.
+	dialogue_scroll = ScrollContainer.new()
+	dialogue_scroll.name = "DialogueParagraphScroll"
+	dialogue_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	dialogue_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	dialogue_scroll.custom_minimum_size = Vector2(0, 100)
+	dialogue_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	stack.add_child(dialogue_scroll)
+	dialogue_text = make_label(19, Color("#f3f6fb"))
 	dialogue_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	dialogue_text.custom_minimum_size = Vector2(0, 112)
-	dialogue_text.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	stack.add_child(dialogue_text)
+	dialogue_text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	dialogue_text.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	dialogue_scroll.add_child(dialogue_text)
 	for index in range(4):
 		var choice := make_button("", Color("#386574"))
 		choice.custom_minimum_size = Vector2(0, 52)
@@ -1146,13 +1156,15 @@ func begin_conversation(resident: PocketActor) -> void:
 	if dialogue_panel == null or dialogue_panel.visible:
 		return
 	var key := str(resident.resident_id)
-	var record: Dictionary = resident_relations.get(key, {"talks": 0, "affinity": 0})
+	var record: Dictionary = resident_relations.get(key, {"talks": 0, "affinity": 0, "topics_seen": 0})
 	var profile: Dictionary = ResidentDialogue.make_profile(resident.resident_id)
-	var tree: Dictionary = ResidentDialogue.make_tree(profile, int(record.get("talks", 0)), int(record.get("affinity", 0)))
+	var cursor: int = maxi(0, int(record.get("topics_seen", record.get("talks", 0))))
+	var tree: Dictionary = ResidentDialogue.make_tree(profile, cursor, int(record.get("affinity", 0)))
 	if not ResidentDialogue.is_valid_tree(tree):
 		push_warning("Invalid conversation tree for resident " + key)
 		return
-	record["talks"] = mini(100000, int(record.get("talks", 0)) + 1)
+	record["talks"] = int(record.get("talks", 0)) + 1
+	record["topics_seen"] = cursor + 1
 	resident_relations[key] = record
 	conversation_tree = tree
 	conversation_node = String(tree["start"])
@@ -1180,10 +1192,37 @@ func select_conversation_option(index: int) -> void:
 		var record: Dictionary = resident_relations.get(key, {"talks": 1, "affinity": 0})
 		record["affinity"] = clampi(int(record.get("affinity", 0)) + int(choice.get("affinity", 0)), 0, 100)
 		resident_relations[key] = record
+	if String(choice["next"]) == "next_topic":
+		continue_conversation()
+		return
 	conversation_node = String(choice["next"])
 	sound.play_ui("ui")
 	update_conversation_panel()
-	save_game()
+	# Longer conversations should not rewrite the save file on every sentence.
+	# Periodic autosave and end_conversation still persist the relationships.
+
+
+func continue_conversation() -> void:
+	# A single encounter can contain unlimited topic transitions. Only one
+	# small graph is kept in memory; the next is generated on demand.
+	if not is_instance_valid(conversation_actor):
+		end_conversation()
+		return
+	var key: String = str(conversation_actor.resident_id)
+	var record: Dictionary = resident_relations.get(key, {"talks": 1, "affinity": 0, "topics_seen": 0})
+	var cursor: int = maxi(0, int(record.get("topics_seen", 0)))
+	var profile: Dictionary = ResidentDialogue.make_profile(conversation_actor.resident_id)
+	var tree: Dictionary = ResidentDialogue.make_tree(profile, cursor, int(record.get("affinity", 0)))
+	if not ResidentDialogue.is_valid_tree(tree):
+		push_warning("Could not continue resident conversation " + key)
+		end_conversation()
+		return
+	record["topics_seen"] = cursor + 1
+	resident_relations[key] = record
+	conversation_tree = tree
+	conversation_node = String(tree["start"])
+	sound.play_ui("ui")
+	update_conversation_panel()
 
 
 func update_conversation_panel() -> void:
@@ -1191,9 +1230,11 @@ func update_conversation_panel() -> void:
 		return
 	var profile: Dictionary = ResidentDialogue.make_profile(conversation_actor.resident_id)
 	var record: Dictionary = resident_relations.get(str(conversation_actor.resident_id), {})
-	dialogue_speaker.text = "%s    ♥ %d" % [profile["name"], int(record.get("affinity", 0))]
+	dialogue_speaker.text = "%s  ♥ %d  ・  %s" % [profile["name"], int(record.get("affinity", 0)), String(conversation_tree.get("topic", "雑談"))]
 	var node: Dictionary = conversation_tree["nodes"].get(conversation_node, {})
 	dialogue_text.text = String(node.get("text", "また話しましょう。"))
+	if dialogue_scroll != null:
+		dialogue_scroll.scroll_vertical = 0
 	var choices: Array = node.get("choices", [])
 	for i in range(dialogue_options.size()):
 		var button := dialogue_options[i]
