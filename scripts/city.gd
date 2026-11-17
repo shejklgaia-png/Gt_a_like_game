@@ -7,6 +7,8 @@ const ActorScene = preload("res://scripts/actor.gd")
 const UrbanAssets = preload("res://scripts/urban_assets.gd")
 const TrafficLights = preload("res://scripts/traffic_light_visuals.gd")
 const NavigationGrid = preload("res://scripts/nav_grid.gd")
+const Districts = preload("res://scripts/district_data.gd")
+const Roads = preload("res://scripts/city_roads.gd")
 var buildings: Array[Dictionary] = []
 var cars: Array[PocketVehicle] = []
 var people: Array[PocketActor] = []
@@ -25,7 +27,7 @@ const SIDEWALK_COLORS := [
 
 func build_city() -> void:
 	rng.seed = 234894
-	Shapes.box(self, Vector3(0, -0.35, 0), Vector3(280, 0.7, 280), Color("#465958"), true)
+	Shapes.box(self, Vector3(0, -0.35, 0), Vector3(374, 0.7, 374), Color("#465958"), true)
 	for n in range(-3, 4):
 		var pos := float(n) * 36.0
 		Shapes.box(self, Vector3(pos, 0.010, 0), Vector3(10.0, 0.02, 246), ROAD_COLOR)
@@ -35,6 +37,8 @@ func build_city() -> void:
 	for ix in range(-3, 3):
 		for iz in range(-3, 3):
 			create_building(ix, iz)
+	Roads.install(self, buildings)
+	add_district_markers()
 	navigation = NavigationGrid.new()
 	for building in buildings:
 		navigation.building(building["position"], float(building["width"]) * 0.5, float(building["depth"]) * 0.5)
@@ -109,19 +113,27 @@ func add_crosswalks() -> void:
 
 
 func create_building(ix: int, iz: int) -> void:
-	var cx := (float(ix) + 0.5) * 36.0
-	var cz := (float(iz) + 0.5) * 36.0
+	var block_center := Vector3((float(ix) + 0.5) * 36.0, 0, (float(iz) + 0.5) * 36.0)
+	var district: String = Districts.district_for(ix, iz)
+	var business: String = Districts.business_for(ix, iz, district)
+	var alley: bool = Districts.alley_for(ix, iz)
+	var cx: float = block_center.x - (4.2 if alley else 0.0)
+	var cz: float = block_center.z
 	var tall := rng.randi_range(11, 32)
 	var height := float(tall)
-	var width := rng.randf_range(18.5, 20.0)
+	var width := rng.randf_range(10.8, 11.4) if alley else rng.randf_range(18.5, 20.0)
 	var depth := rng.randf_range(18.5, 20.0)
-	var shop := ix == 0 and iz == -1
+	var shop := business == "gun"
 	if shop:
 		height = 12.0
 	var sidewalk_color: Color = SIDEWALK_COLORS[posmod(ix * 13 + iz * 7, SIDEWALK_COLORS.size())]
-	Shapes.box(self, Vector3(cx, 0.026, cz), Vector3(27, 0.04, 27), sidewalk_color) # Flat and nonblocking; streets and sidewalks share one physical ground plane.
+	Shapes.box(self, Vector3(block_center.x, 0.026, cz), Vector3(27, 0.04, 27), sidewalk_color) # Flat and nonblocking; streets and sidewalks share one physical ground plane.
 	var wall_hue := fposmod(float(ix + 3) * 0.207 + float(iz + 3) * 0.133 + rng.randf_range(-0.025, 0.025), 1.0)
-	var wall_color := Color.from_hsv(wall_hue, rng.randf_range(0.47, 0.69), rng.randf_range(0.74, 0.91))
+	var wall_color := Color.from_hsv(wall_hue, rng.randf_range(0.30, 0.59), rng.randf_range(0.63, 0.88))
+	if business in ["supermarket", "convenience", "clothing", "furniture", "market", "restaurant"]:
+		height = minf(height, 18.0)
+	if district == "office":
+		height = maxf(height, 26.0)
 	if shop:
 		wall_color = Color("#bc8178")
 	Shapes.box(self, Vector3(cx, height * 0.5 + 0.02, cz), Vector3(width, height, depth), wall_color, true)
@@ -129,8 +141,9 @@ func create_building(ix: int, iz: int) -> void:
 	var front_z := cz - depth / 2.0
 	var door := Vector3(cx, 0, front_z - 1.1)
 	Shapes.box(self, Vector3(cx, 1.62, front_z - 0.075), Vector3(2.65, 3.25, 0.14), Color("#162534"))
-	Shapes.box(self, Vector3(cx, 2.95, front_z - 0.18), Vector3(3.0, 0.2, 0.28), Color("#00d5c2") if not shop else Color("#ffcc74"))
-	Shapes.sign3d(self, "GUN SHOP" if shop else "ENTER", Vector3(cx, 4.05, front_z - 0.6), Color("#ffdf8a") if shop else Color("#91e7df"))
+	var accent: Color = Districts.DISTRICT_COLORS[district]
+	Shapes.box(self, Vector3(cx, 2.95, front_z - 0.18), Vector3(3.0, 0.2, 0.28), accent)
+	Shapes.sign3d(self, String(Districts.BUSINESS_NAMES[business]), Vector3(cx, 4.05, front_z - 0.6), accent)
 	var window_mesh := BoxMesh.new()
 	window_mesh.size = Vector3(2.7, 1.7, 0.13)
 	var transforms: Array[Transform3D] = []
@@ -156,6 +169,12 @@ func create_building(ix: int, iz: int) -> void:
 	buildings.append({
 		"id": "lot_%d_%d" % [ix, iz],
 		"position": Vector3(cx, 0, cz),
+		"block_center": block_center,
+		"district": district,
+		"district_name": Districts.LABELS[district],
+		"business": business,
+		"home_price": Districts.home_price(ix, iz, district),
+		"alley": alley,
 		"door": door,
 		"shop": shop,
 		"height": height,
@@ -164,6 +183,22 @@ func create_building(ix: int, iz: int) -> void:
 		"wall_color": wall_color,
 		"sidewalk_color": sidewalk_color
 	})
+
+
+func add_district_markers() -> void:
+	var signs := Node3D.new()
+	signs.name = "DistrictGateways"
+	add_child(signs)
+	var representative: Dictionary = {}
+	for lot in buildings:
+		var district: String = String(lot["district"])
+		if not representative.has(district):
+			representative[district] = lot
+	for key in representative:
+		var building: Dictionary = representative[key]
+		var point: Vector3 = building["door"]
+		var tint: Color = Districts.DISTRICT_COLORS[String(key)]
+		Shapes.sign3d(signs, String(Districts.LABELS[String(key)]), point + Vector3(0, 8.0, -1), tint)
 
 
 func add_street_props() -> void:
