@@ -48,6 +48,10 @@ static func add_curved_connectors(root: Node3D) -> void:
 	var curves := Node3D.new()
 	curves.name = "CurvedPerimeterRoads"
 	root.add_child(curves)
+	# Exterior ring links allow drivers to follow the curves around the city.
+	for side in [-1.0, 1.0]:
+		road_segment(curves, Vector3(side * 128.0, 0.04, -98), Vector3(side * 128.0, 0.04, 98), 7.8, ROAD)
+		road_segment(curves, Vector3(-98, 0.04, side * 128.0), Vector3(98, 0.04, side * 128.0), 7.8, ROAD)
 	# Quarter-circle connector: the road is an actual sequence of tangent
 	# surfaces, not painted scenery. Corners reach the outer ring roads.
 	for corner in [Vector2(-1, -1), Vector2(-1, 1), Vector2(1, -1), Vector2(1, 1)]:
@@ -106,3 +110,41 @@ static func add_freeway(root: Node3D) -> void:
 			var x: float = float(segment) * 19.0
 			Shapes.box(freeway, Vector3(x, 7.32, 137.0 + rail_side * 5.0), Vector3(18.7, 0.5, 0.23), Color("#879aa5"))
 	Shapes.sign3d(freeway, "CITY EXPRESSWAY", Vector3(0, 11.0, 137), Color("#c3e2d8"))
+
+
+static func perimeter_route() -> Array[Vector3]:
+	# Clockwise path following the actual perimeter road and four round corners.
+	var points: Array[Vector3] = [Vector3(128, 0, -98), Vector3(128, 0, 98)]
+	for part in range(4):
+		var center := Vector2(98, 98)
+		var first_angle := 0.0
+		match part:
+			0:
+				center = Vector2(98, 98)
+				first_angle = 0.0
+			1:
+				center = Vector2(-98, 98)
+				first_angle = PI * 0.5
+			2:
+				center = Vector2(-98, -98)
+				first_angle = PI
+			_:
+				center = Vector2(98, -98)
+				first_angle = PI * 1.5
+		for step in range(1, 9):
+			var a := first_angle + float(step) / 8.0 * PI * 0.5
+			points.append(Vector3(center.x + cos(a) * 30.0, 0, center.y + sin(a) * 30.0))
+		match part:
+			0: points.append(Vector3(-98, 0, 128))
+			1: points.append(Vector3(-128, 0, -98))
+			2: points.append(Vector3(98, 0, -128))
+	return points
+
+
+static func freeway_route() -> Array[Vector3]:
+	return [
+		Vector3(-159, 0, 137), Vector3(-144, 0.25, 137),
+		Vector3(-104, 7, 137), Vector3(-50, 7, 137),
+		Vector3(50, 7, 137), Vector3(104, 7, 137),
+		Vector3(144, 0.25, 137), Vector3(159, 0, 137)
+	]
