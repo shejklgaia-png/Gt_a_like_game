@@ -788,7 +788,7 @@ func load_game() -> void:
 	if saved_residents is Dictionary:
 		for resident_key in saved_residents:
 			var resident_value = saved_residents[resident_key]
-			if not resident_value is Dictionary:
+			if not (resident_value is Dictionary):
 				continue
 			var slot := String(resident_key)
 			if not slot.is_valid_int() or int(slot) < 0 or int(slot) >= city.people.size():
