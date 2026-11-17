@@ -220,8 +220,8 @@ static func make_tree(profile: Dictionary, talks: int = 0, affinity: int = 0) ->
 	# Each topic has subject-specific fact, detail, counterpoint and question.
 	# Responding negatively never implies agreement with the positive statement.
 	var yes_or_no: Array = [
-		{"text": "はい、そう思います", "next": "yes", "affinity": 1},
-		{"text": "どちらかというと違います", "next": "no", "affinity": 0},
+		{"text": "はい", "next": "yes", "affinity": 1},
+		{"text": "いいえ", "next": "no", "affinity": 0},
 		{"text": "あなた自身はどうですか？", "next": "personal", "affinity": 1},
 		{"text": "そろそろ行きます", "next": "bye", "affinity": 0}
 	]
@@ -257,7 +257,7 @@ static func make_tree(profile: Dictionary, talks: int = 0, affinity: int = 0) ->
 			]
 		},
 		"personal": {
-			"text": "%s\n%sについては、これからも自分のペースで楽しみたいです。" % [String(approach["personal"]), String(topic["title"])],
+			"text": "%s\n%sについて、これからも自分なりに考えてみたいです。" % [String(approach["personal"]), String(topic["title"])],
 			"choices": [
 				{"text": "いいお話ですね", "next": "friendly_bye", "affinity": 2},
 				{"text": "話してくれてありがとう", "next": "bye", "affinity": 1}
