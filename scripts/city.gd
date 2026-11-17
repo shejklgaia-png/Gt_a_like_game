@@ -241,6 +241,20 @@ func spawn_traffic() -> void:
 			car.position = Vector3(lane, 1.00, rng.randf_range(-102.0, 102.0))
 		else:
 			car.position = Vector3(rng.randf_range(-102.0, 102.0), 1.00, lane)
+		if i == 14 or i == 15:
+			car.npc_route = Roads.perimeter_route()
+			car.route_index = 1 if i == 14 else 21
+			car.position = car.npc_route[0 if i == 14 else 20] + Vector3(0, 0.80, 0)
+		elif i == 16 or i == 17:
+			car.npc_route = Roads.freeway_route()
+			if i == 17:
+				for route_point in range(car.npc_route.size()):
+					car.npc_route[route_point] = car.npc_route[route_point] + Vector3(0, 0, 2.1)
+				car.route_index = 4
+				car.position = car.npc_route[3] + Vector3(0, 0.80, 0)
+			else:
+				car.route_index = 1
+				car.position = car.npc_route[0] + Vector3(0, 0.80, 0)
 		car_root.add_child(car)
 		cars.append(car)
 
