@@ -256,7 +256,7 @@ static func make_tree(profile: Dictionary, talks: int = 0, affinity: int = 0, co
 		greeting = "また会いましたね。"
 	var opening: String = String(approach["opening"]) % String(topic["title"])
 	var specialist: bool = String(profile.get("expertise", "")) == String(topic["genre"])
-	var expert_intro := "私は%sに関わっているので、少し専門的な話もできますよ。" % String(profile.get("role", "この分野"))
+	var expert_intro := "私は%sとして活動しているので、少し専門的な話もできますよ。" % String(profile.get("role", "この分野"))
 	if not specialist:
 		expert_intro = "専門家の仕事の話も聞いたことがあります。"
 	var question: String = String(topic["question"])
