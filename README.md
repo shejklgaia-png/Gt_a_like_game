@@ -143,3 +143,30 @@ The assets listed above are all constructed procedurally and use no third-party 
 
 This remains a prototype. Physical Android device testing is needed in addition
 to CI headless tests.
+
+
+## Android editor: game subprocess stops without a script error
+
+If the Android Godot editor prints `--- Debugging process stopped ---` after a few
+seconds but remains open, the game subprocess may have been closed by Android;
+that message **does not, by itself, identify a script error**. Godot's Android
+editor has a documented crash related to embedded game windows:
+
+1. In Godot, open the **Game** workspace at the top, set **Game Embed Mode**
+   to **Disabled**, and run the game again.
+2. In Android Developer Options, ensure **Don't keep activities** is OFF.
+3. Compare with the **standalone Android APK** from the preview release. If the
+   APK works while editor Play closes, investigate the editor / Android window
+   lifecycle rather than treating it as a game script crash.
+4. On Android, the game writes a lightweight 5-second diagnostic snapshot to
+   `user://pocket_district_last_session.json` with runtime, memory monitor,
+   node count, and renderer draw calls. If the previous run did not close
+   normally, the next launch displays its last known seconds / memory / nodes
+   for 12 seconds and prints the snapshot to Output.
+5. Note: GitHub's automated headless stress tests validate the game logic but
+   **cannot prove that an Android phone's native renderer won't crash**.
+
+Reported upstream: https://github.com/godotengine/godot/issues/109485
+Godot Android-editor caveats:
+https://docs.godotengine.org/en/stable/tutorials/editor/using_the_android_editor.html
+
