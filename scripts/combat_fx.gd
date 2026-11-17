@@ -29,8 +29,9 @@ static func tracer(parent: Node3D, start: Vector3, finish: Vector3, thick: float
 	var mat := Shapes.material(tint)
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	visual.material_override = mat
-	visual.global_position = (start + finish) * 0.5
+	# global_position is only valid after the visual has entered the scene tree.
 	parent.add_child(visual)
+	visual.global_position = (start + finish) * 0.5
 	visual.quaternion = Quaternion(Vector3.UP, span.normalized())
 	erase_after(parent, visual, duration)
 
