@@ -8,6 +8,8 @@ const Shapes = preload("res://scripts/shape_factory.gd")
 const Fx = preload("res://scripts/combat_fx.gd")
 const TrafficRules = preload("res://scripts/traffic_rules.gd")
 var officer: bool = false
+var indoor_mode: bool = false
+var mafia: bool = false
 var resident_id: int = -1
 var chatting: bool = false
 var chat_target: Node3D
@@ -78,7 +80,7 @@ func _ready() -> void:
 	add_child(collider)
 	visual = Node3D.new()
 	add_child(visual)
-	var outfit: Color = Color("#334f85") if officer else Color.from_hsv(rng.randf(), 0.36, 0.83)
+	var outfit: Color = Color("#334f85") if officer else (Color("#443b50") if mafia else Color.from_hsv(rng.randf(), 0.36, 0.83))
 	Shapes.box(visual, Vector3(0, 1.12, 0), Vector3(0.65, 0.86, 0.36), outfit)
 	Shapes.ball(visual, Vector3(0, 1.77, 0), 0.28, Color("#caa48f"))
 	Shapes.box(visual, Vector3(0, 1.97, 0), Vector3(0.54, 0.16, 0.46), Color("#172d42") if officer else Color("#423a43"))
@@ -90,8 +92,10 @@ func _ready() -> void:
 		Shapes.box(visual, Vector3(0, 1.15, -0.195), Vector3(0.21, 0.18, 0.035), Color("#a2d5e4"))
 		Shapes.box(right_arm, Vector3(0.0, -0.64, -0.11), Vector3(0.075, 0.57, 0.08), Color("#101821"))
 		Shapes.box(right_arm, Vector3(0.0, -0.94, -0.11), Vector3(0.12, 0.08, 0.13), Color("#69747a"))
-	else:
+	elif not indoor_mode:
 		select_sidewalk_goal()
+	if mafia:
+		Shapes.box(visual, Vector3(0, 1.12, -0.205), Vector3(0.24, 0.16, 0.04), Color("#ba485a"))
 
 
 func joint(at: Vector3, size: Vector3, tint: Color, height_offset: float) -> Node3D:
@@ -177,6 +181,24 @@ func _physics_process(delta: float) -> void:
 	panic_time = maxf(0.0, panic_time - delta)
 	if dead:
 		velocity = Vector3.ZERO
+		return
+	if indoor_mode:
+		var moving_direction := Vector3.ZERO
+		if mafia and is_instance_valid(chase_target) and not chase_target.get("dead"):
+			var toward: Vector3 = chase_target.global_position - global_position
+			toward.y = 0.0
+			if toward.length() < 10.0:
+				if toward.length() <= 2.75:
+					try_baton_attack(chase_target, 8.0)
+				elif attack_clock < 0.0:
+					moving_direction = toward.normalized()
+				if toward.length_squared() > 0.01:
+					visual.rotation.y = lerp_angle(visual.rotation.y, atan2(-toward.x, -toward.z) - rotation.y, clampf(delta * 7.0, 0.0, 1.0))
+		velocity.x = moving_direction.x * 3.2
+		velocity.z = moving_direction.z * 3.2
+		velocity.y = -0.4 if is_on_floor() else velocity.y - 19.6 * delta
+		move_and_slide()
+		moving = move_toward(moving, 1.0 if moving_direction.length_squared() > 0.01 else 0.0, delta * 8.0)
 		return
 	if chatting and not officer:
 		velocity.x = 0.0
@@ -312,7 +334,7 @@ func _process(delta: float) -> void:
 
 
 func try_baton_attack(victim: Node3D, points: float) -> bool:
-	if dead or not officer or strike_cooldown > 0.0 or attack_clock >= 0.0:
+	if dead or (not officer and not mafia) or strike_cooldown > 0.0 or attack_clock >= 0.0:
 		return false
 	if not is_instance_valid(victim) or global_position.distance_to(victim.global_position) > 2.9:
 		return false
