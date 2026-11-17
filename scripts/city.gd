@@ -290,3 +290,51 @@ func replenish_pedestrians() -> Array[PocketActor]:
 		people[index] = person
 		newcomers.append(person)
 	return newcomers
+
+
+# Android's Godot editor runs the game alongside the editor itself, leaving less
+# RAM and CPU/GPU headroom than a standalone exported build. Keep the 46 resident
+# identities and all traffic slots, but stop simulating and drawing distant actors.
+# Call at a low frequency from main.gd; never disable police or active carjacking.
+const RESIDENT_ACTIVE_DISTANCE_SQ := 65.0 * 65.0
+const CAR_ACTIVE_DISTANCE_SQ := 100.0 * 100.0
+
+func update_mobile_activity(focus: Vector3, driven_car: PocketVehicle = null) -> void:
+	for person in people:
+		if not is_instance_valid(person):
+			continue
+		var horizontal := Vector2(person.global_position.x - focus.x, person.global_position.z - focus.z)
+		var active := horizontal.length_squared() <= RESIDENT_ACTIVE_DISTANCE_SQ or person.chatting or person.dead or person.panic_time > 0.0
+		if person.visible != active:
+			person.visible = active
+			person.set_process(active)
+			person.set_physics_process(active)
+			person.collision_layer = 2 if active else 0
+	for car in cars:
+		if not is_instance_valid(car):
+			continue
+		var horizontal := Vector2(car.global_position.x - focus.x, car.global_position.z - focus.z)
+		var active := horizontal.length_squared() <= CAR_ACTIVE_DISTANCE_SQ or car == driven_car or car.occupied or car.being_stolen
+		if car.visible != active:
+			car.visible = active
+			car.set_process(active)
+			car.set_physics_process(active)
+			car.collision_layer = 8 if active else 0
+
+
+func restore_all_activity() -> void:
+	# Used by tests and when the performance mode is switched off.
+	for person in people:
+		if not is_instance_valid(person):
+			continue
+		person.visible = true
+		person.set_process(true)
+		person.set_physics_process(true)
+		person.collision_layer = 2
+	for car in cars:
+		if not is_instance_valid(car):
+			continue
+		car.visible = true
+		car.set_process(true)
+		car.set_physics_process(true)
+		car.collision_layer = 8
