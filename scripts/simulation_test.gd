@@ -29,6 +29,16 @@ func exercise() -> void:
 		if city.navigation.grid.is_point_solid(city.navigation.id_from_world(Vector3(pos.x, 0, pos.y))):
 			fail("Generated police navigation cuts through a building", 54)
 			return
+	# Citizen rhythms must be varied without changing the street-crossing collision rules.
+	var unique_paces: Dictionary = {}
+	for citizen in city.people:
+		if citizen.strolling_speed < 1.75 or citizen.strolling_speed > 2.45:
+			fail("Resident speed outside safe walking range", 71)
+			return
+		unique_paces[int(citizen.strolling_speed * 100.0)] = true
+	if unique_paces.size() < 8:
+		fail("Crowd walking pace has lost its per-resident variety", 72)
+		return
 	var first: PocketActor = city.people[0]
 	var spawned: Vector3 = first.global_position
 	for frame in range(160):
@@ -114,5 +124,5 @@ func exercise() -> void:
 		fail("Overhead camera failed to return to its fixed orientation", 70)
 		return
 	print("PASS: side-facade objects have crossing clearance; benches face inward; colorful blocks and long-range fixed overhead camera")
-	print("PASS: 160-frame autonomous city simulation, nav grid, traffic phases, generated ambience and unique deterministic interior loot")
+	print("PASS: 160-frame autonomous city simulation, varied crowd pace, nav grid, traffic phases, and unique interior loot")
 	quit(0)
