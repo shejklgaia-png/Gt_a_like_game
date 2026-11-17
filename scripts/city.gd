@@ -9,6 +9,7 @@ const TrafficLights = preload("res://scripts/traffic_light_visuals.gd")
 const NavigationGrid = preload("res://scripts/nav_grid.gd")
 const Districts = preload("res://scripts/district_data.gd")
 const Roads = preload("res://scripts/city_roads.gd")
+const DistrictStorefronts = preload("res://scripts/district_storefronts.gd")
 var buildings: Array[Dictionary] = []
 var cars: Array[PocketVehicle] = []
 var people: Array[PocketActor] = []
@@ -55,6 +56,7 @@ func build_city() -> void:
 	spawn_civilians()
 	add_street_props()
 	UrbanAssets.install(self, buildings)
+	DistrictStorefronts.install(self, buildings)
 	var lights := TrafficLights.new()
 	lights.name = "TrafficLights"
 	add_child(lights)
