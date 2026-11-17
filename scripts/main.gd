@@ -628,8 +628,12 @@ func interaction() -> void:
 				save_game()
 		elif interior.exit_near(hero.global_position):
 			leave_interior()
-		elif purchased_homes.has(active_building):
-			open_home_furniture_menu()
+		else:
+			var indoor_resident: PocketActor = interior.closest_civilian(hero.global_position)
+			if indoor_resident != null and wanted == 0:
+				begin_conversation(indoor_resident)
+			elif purchased_homes.has(active_building):
+				open_home_furniture_menu()
 		return
 	if car_driven != null:
 		exit_car()
@@ -857,7 +861,7 @@ func load_game() -> void:
 			if not (resident_value is Dictionary):
 				continue
 			var slot := String(resident_key)
-			if not slot.is_valid_int() or int(slot) < 0 or int(slot) >= city.people.size():
+			if not slot.is_valid_int() or int(slot) < 0 or int(slot) > 1000000:
 				continue
 			resident_relations[slot] = {
 				"talks": maxi(0, int(resident_value.get("talks", 0))),
@@ -1032,6 +1036,8 @@ func update_hud() -> void:
 			caption = "ACTION: SEARCH CACHE"
 		elif interior.exit_near(hero.global_position):
 			caption = "ACTION: EXIT"
+		elif interior.closest_civilian(hero.global_position) != null and wanted == 0:
+			caption = "ACTION: 室内の住民と話す"
 		elif purchased_homes.has(active_building):
 			caption = "ACTION: 家具を配置"
 		else:
