@@ -163,6 +163,33 @@ static func make_tree(profile: Dictionary, talks: int = 0, affinity: int = 0) ->
 		"friendly_bye": {"text": "こちらこそ、話せてよかったです。また会いましょう！", "choices": []},
 		"bye": {"text": topic["bye"], "choices": []}
 	}
+	# Randomize both the root's fan-out and branch order for this resident/visit.
+	# Prune missing branches so there are no unreachable or dangling nodes.
+	var openings: Array = [
+		{"text": "私もそう思います", "next": "agree", "affinity": 2},
+		{"text": "詳しく聞きたいです", "next": "detail", "affinity": 1},
+		{"text": "そうは思いません", "next": "doubt", "affinity": 0}
+	]
+	for index in range(openings.size() - 1, 0, -1):
+		var swap_index := rng.randi_range(0, index)
+		var swap_value = openings[index]
+		openings[index] = openings[swap_index]
+		openings[swap_index] = swap_value
+	var chosen: Array = []
+	for index in range(2 + rng.randi_range(0, 1)):
+		chosen.append(openings[index])
+	chosen.append({"text": "また今度話しましょう", "next": "bye", "affinity": 0})
+	var start_node: Dictionary = nodes["start"]
+	start_node["choices"] = chosen
+	nodes["start"] = start_node
+	for branch in ["agree", "detail", "doubt"]:
+		var present := false
+		for selection in chosen:
+			if String(selection["next"]) == branch:
+				present = true
+				break
+		if not present:
+			nodes.erase(branch)
 	return {"start": "start", "topic": topic["id"], "nodes": nodes}
 
 
