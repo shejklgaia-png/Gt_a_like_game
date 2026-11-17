@@ -127,7 +127,7 @@ func create_building(ix: int, iz: int) -> void:
 	if shop:
 		height = 12.0
 	var sidewalk_color: Color = SIDEWALK_COLORS[posmod(ix * 13 + iz * 7, SIDEWALK_COLORS.size())]
-	Shapes.box(self, Vector3(block_center.x, 0.026, cz), Vector3(27, 0.04, 27), sidewalk_color) # Flat and nonblocking; streets and sidewalks share one physical ground plane.
+	Shapes.box(self, Vector3(cx, 0.026, cz), Vector3(27, 0.04, 27), sidewalk_color) # Flat and nonblocking; streets and sidewalks share one physical ground plane.
 	var wall_hue := fposmod(float(ix + 3) * 0.207 + float(iz + 3) * 0.133 + rng.randf_range(-0.025, 0.025), 1.0)
 	var wall_color := Color.from_hsv(wall_hue, rng.randf_range(0.30, 0.59), rng.randf_range(0.63, 0.88))
 	if business in ["supermarket", "convenience", "clothing", "furniture", "market", "restaurant"]:
