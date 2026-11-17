@@ -259,7 +259,7 @@ func run_smoke() -> void:
 		quit(40)
 		return
 	var scenario_num: int = int(game.conversation_tree["scenario_id"])
-	var authored_topic: Dictionary = dialogue_library.catalog()[scenario_num / 10]
+	var authored_topic: Dictionary = dialogue_library.catalog()[floori(float(scenario_num) / 10.0)]
 	game.select_conversation_option(0)
 	game.select_conversation_option(3)
 	if game.conversation_node != "knowledge_hub":
