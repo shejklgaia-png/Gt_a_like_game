@@ -36,11 +36,37 @@ func _draw() -> void:
 		var dz := (p - focus.z) * map_scale + size.y * 0.5
 		draw_line(Vector2(dx, 1), Vector2(dx, size.y - 1), Color("#47545d"), 5)
 		draw_line(Vector2(1, dz), Vector2(size.x - 1, dz), Color("#47545d"), 5)
+	# Curves, raised expressway and service alleys share the world-space map.
+	var freeway_from := to_map(Vector3(-144, 0, 137), focus)
+	var freeway_to := to_map(Vector3(144, 0, 137), focus)
+	draw_line(freeway_from, freeway_to, Color("#c9a36a"), 5)
+	for corner in [Vector2(-1, -1), Vector2(-1, 1), Vector2(1, -1), Vector2(1, 1)]:
+		var previous := Vector2.ZERO
+		for step in range(17):
+			var angle := float(step) / 16.0 * PI * 0.5
+			var world := Vector3(corner.x * (98.0 + cos(angle) * 30.0), 0, corner.y * (98.0 + sin(angle) * 30.0))
+			var point := to_map(world, focus)
+			if step > 0:
+				draw_line(previous, point, Color("#647583"), 3)
+			previous = point
 	for building in game.city.buildings:
-		if bool(building["shop"]):
-			var point := to_map(building["door"], focus)
-			if Rect2(Vector2.ZERO, size).has_point(point):
-				draw_circle(point, 4, Color("#a0e1ff"))
+		if bool(building.get("alley", false)):
+			var lot_center: Vector3 = building["block_center"]
+			draw_line(to_map(lot_center + Vector3(8.4, 0, -17), focus), to_map(lot_center + Vector3(8.4, 0, 17), focus), Color("#8b9da0"), 2)
+		var door: Vector3 = building["door"]
+		var point := to_map(door, focus)
+		if not Rect2(Vector2.ZERO, size).has_point(point):
+			continue
+		var business: String = String(building.get("business", ""))
+		if business == "gun":
+			draw_circle(point, 4, Color("#f1c780"))
+		elif business == "apartment":
+			var purchased: bool = game.purchased_homes.has(String(building["id"]))
+			draw_circle(point, 4, Color("#6ef5b7") if purchased else Color("#82cfff"))
+		elif business in ["supermarket", "convenience", "clothing", "furniture", "market"]:
+			draw_circle(point, 3.5, Color("#ffe1a2"))
+		elif business in ["lounge", "club"]:
+			draw_circle(point, 3.5, Color("#dca1ed"))
 	for car in game.city.cars:
 		if is_instance_valid(car):
 			var point := to_map(car.global_position, focus)
