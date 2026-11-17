@@ -60,6 +60,17 @@ This is a **playable prototype**, not a content-complete GTA clone. Cars use sim
 
 Saved data is stored by Godot under `user://pocket_district_save.json`. This file is not in the Git repository. Reinstalling or clearing app data can delete the save.
 
+
+## Neighborhood conversations (first playable version)
+
+- Walk near a civilian to see **ACTION: 話す**. Press **ACTION** (mobile) or **E/F** (desktop) to talk. Building entrances take priority when you are right at the door.
+- Pick one of the displayed replies using the touch buttons or desktop keys **1–4**. Tap **会話を終える** (or press **E/F/Esc**) to leave.
+- Each of the 46 civilian slots gets a persistent Japanese name, deterministic personality seed, favorite topic, conversation visit count and friendship/affinity score.
+- The first interaction introduces the resident; later chats vary the topic, branch order and number of initial branches. Responses are tied to the current topic and only point to valid successor nodes; there is no free-form text generation or unpredictable LLM dependency.
+- Civilians pause walking and turn toward the player during a conversation. Attacks, panic, wanted status, moving out of range and player injury/death end the interaction safely.
+- Relationships are saved as the optional \`residents\` object in \`user://pocket_district_save.json\`; older saves continue to load.
+- The headless smoke test validates every civilian's conversation graph and checks an actual dialogue path plus relationship persistence.
+
 ## Roadmap
 
 Streaming city chunks, navigation and traffic signals; shoot animations, gun recoil and muzzle effects; shop economy; interior object interactions; missions with waypoint arrows; touch sensitivity calibration; Android device profiling.
