@@ -5,6 +5,16 @@ const SAMPLE_RATE := 22050
 var sounds: Dictionary = {}
 var steps: int = 0
 var music: AudioStreamPlayer
+# Bound temporary audio nodes so repeated sound effects cannot exhaust mobile memory.
+const MAX_ONE_SHOT_VOICES := 20
+
+func one_shot_voice_count() -> int:
+	var count := 0
+	for child in get_children():
+		if child != music and not child.is_queued_for_deletion():
+			count += 1
+	return count
+
 
 func _ready() -> void:
 	for key in ["Handgun", "Rifle", "Shotgun", "Sniper", "Machine Gun", "footstep", "impact", "hurt", "cash", "car_door", "engine", "police", "ui", "death"]:
@@ -99,6 +109,8 @@ func make_sound(kind: String) -> AudioStreamWAV:
 func play(kind: String, at: Vector3 = Vector3.ZERO, volume_db: float = -6.0, pitch: float = 1.0) -> void:
 	if not sounds.has(kind):
 		return
+	if one_shot_voice_count() >= MAX_ONE_SHOT_VOICES:
+		return
 	var player := AudioStreamPlayer3D.new()
 	player.stream = sounds[kind]
 	player.unit_size = 15.0
@@ -112,6 +124,8 @@ func play(kind: String, at: Vector3 = Vector3.ZERO, volume_db: float = -6.0, pit
 
 func play_ui(kind: String = "ui", volume_db: float = -9.0) -> void:
 	if not sounds.has(kind):
+		return
+	if one_shot_voice_count() >= MAX_ONE_SHOT_VOICES:
 		return
 	var player := AudioStreamPlayer.new()
 	player.stream = sounds[kind]
