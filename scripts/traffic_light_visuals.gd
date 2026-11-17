@@ -16,6 +16,9 @@ func _ready() -> void:
 			var x := float(xi) * 36.0
 			var z := float(zi) * 36.0
 			for side in [-1.0, 1.0]:
+				# One signal head per intersection on Android; same shared traffic logic.
+				if OS.get_name() == "Android" and side > 0.0:
+					continue
 				var base := Vector3(x + side * 5.35, 0.0, z + side * 5.35)
 				Shapes.box(self, base + Vector3(0, 2.5, 0), Vector3(0.14, 5.0, 0.14), Color("#202e34"))
 				var x_light := Shapes.box(self, base + Vector3(0.0, 4.5, -0.3), Vector3(0.55, 0.88, 0.25), off)
