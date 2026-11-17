@@ -217,6 +217,7 @@ func spawn_civilians() -> void:
 		else:
 			person.position = Vector3(along, 0.13, v + 6.35)
 		person.setup(false, person.position, seed_number, i % 2)
+		person.resident_id = i
 		person_root.add_child(person)
 		people.append(person)
 
@@ -256,6 +257,19 @@ func closest_car(at: Vector3, distance_max: float = 4.5) -> PocketVehicle:
 			best = dist
 	return found
 
+func closest_resident(at: Vector3, distance_max: float = 3.0) -> PocketActor:
+	var nearest: PocketActor = null
+	var best := distance_max
+	for person in people:
+		if not is_instance_valid(person) or person.dead or person.panic_time > 0.0:
+			continue
+		var distance := Vector2(at.x - person.global_position.x, at.z - person.global_position.z).length()
+		if distance < best:
+			best = distance
+			nearest = person
+	return nearest
+
+
 func replenish_pedestrians() -> Array[PocketActor]:
 	var newcomers: Array[PocketActor] = []
 	for index in range(people.size()):
@@ -271,6 +285,7 @@ func replenish_pedestrians() -> Array[PocketActor]:
 		else:
 			person.position = Vector3(along, 0.13, road + 6.35)
 		person.setup(false, person.position, rng.randi(), axis)
+		person.resident_id = index
 		person_root.add_child(person)
 		people[index] = person
 		newcomers.append(person)
