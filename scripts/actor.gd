@@ -183,6 +183,11 @@ func _physics_process(delta: float) -> void:
 		velocity = Vector3.ZERO
 		return
 	if indoor_mode:
+		if chatting and is_instance_valid(chat_target):
+			var glance: Vector3 = chat_target.global_position - global_position
+			glance.y = 0.0
+			if glance.length_squared() > 0.05:
+				visual.rotation.y = lerp_angle(visual.rotation.y, atan2(-glance.x, -glance.z) - rotation.y, clampf(delta * 7.0, 0.0, 1.0))
 		var moving_direction := Vector3.ZERO
 		if mafia and is_instance_valid(chase_target) and not chase_target.get("dead"):
 			var toward: Vector3 = chase_target.global_position - global_position
