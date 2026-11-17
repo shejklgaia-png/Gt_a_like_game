@@ -8,6 +8,9 @@ const Shapes = preload("res://scripts/shape_factory.gd")
 const Fx = preload("res://scripts/combat_fx.gd")
 const TrafficRules = preload("res://scripts/traffic_rules.gd")
 var officer: bool = false
+var resident_id: int = -1
+var chatting: bool = false
+var chat_target: Node3D
 var health: float = 80.0
 var anchor: Vector3 = Vector3.ZERO
 var target: Vector3 = Vector3.ZERO
@@ -172,6 +175,18 @@ func _physics_process(delta: float) -> void:
 	panic_time = maxf(0.0, panic_time - delta)
 	if dead:
 		velocity = Vector3.ZERO
+		return
+	if chatting and not officer:
+		velocity.x = 0.0
+		velocity.z = 0.0
+		velocity.y = -0.4 if is_on_floor() else velocity.y - 19.6 * delta
+		move_and_slide()
+		moving = move_toward(moving, 0.0, delta * 8.0)
+		if is_instance_valid(chat_target):
+			var toward := chat_target.global_position - global_position
+			toward.y = 0.0
+			if toward.length_squared() > 0.02:
+				visual.rotation.y = lerp_angle(visual.rotation.y, atan2(-toward.x, -toward.z) - rotation.y, clampf(delta * 7.0, 0.0, 1.0))
 		return
 	if officer and engage and is_instance_valid(chase_target):
 		var foe_position: Vector3 = chase_target.global_position
