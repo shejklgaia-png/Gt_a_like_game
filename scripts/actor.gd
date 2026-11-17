@@ -59,8 +59,8 @@ func setup(is_officer: bool, initial_anchor: Vector3, seed_value: int, p_axis: i
 	var block_index := floori(along / 36.0)
 	segment_min = float(block_index) * 36.0 + 6.8
 	segment_max = float(block_index + 1) * 36.0 - 6.8
-	if not officer:
-		select_sidewalk_goal()
+	# Initial sidewalk navigation must wait until the actor is inside the scene tree.
+	# Its previous call here accessed global_position before add_child().
 
 
 func _ready() -> void:
@@ -90,6 +90,8 @@ func _ready() -> void:
 		Shapes.box(visual, Vector3(0, 1.15, -0.195), Vector3(0.21, 0.18, 0.035), Color("#a2d5e4"))
 		Shapes.box(right_arm, Vector3(0.0, -0.64, -0.11), Vector3(0.075, 0.57, 0.08), Color("#101821"))
 		Shapes.box(right_arm, Vector3(0.0, -0.94, -0.11), Vector3(0.12, 0.08, 0.13), Color("#69747a"))
+	else:
+		select_sidewalk_goal()
 
 
 func joint(at: Vector3, size: Vector3, tint: Color, height_offset: float) -> Node3D:
