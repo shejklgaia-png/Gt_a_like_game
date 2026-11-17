@@ -10,6 +10,7 @@ const SafeSave = preload("res://scripts/safe_save.gd")
 const SoundBank = preload("res://scripts/sound_bank.gd")
 const MapScript = preload("res://scripts/minimap.gd")
 const PerfScript = preload("res://scripts/perf_overlay.gd")
+const ResidentDialogue = preload("res://scripts/resident_dialogue.gd")
 
 var WEAPONS: Array[Dictionary] = GameData.weapons()
 const SAVE_PATH := "user://pocket_district_save.json"
@@ -93,6 +94,15 @@ var stick_pointer: int = -1
 var stick_value := Vector2.ZERO
 var stick_center := Vector2.ZERO
 var mouse_stick: bool = false
+var resident_relations: Dictionary = {}
+var conversation_actor: PocketActor
+var conversation_tree: Dictionary = {}
+var conversation_node: String = ""
+var dialogue_panel: Panel
+var dialogue_speaker: Label
+var dialogue_text: Label
+var dialogue_options: Array[Button] = []
+var dialogue_exit: Button
 
 
 func _ready() -> void:
@@ -160,6 +170,9 @@ func _physics_process(delta: float) -> void:
 	reload_clock = maxf(0.0, reload_clock - delta)
 	if reload_weapon_id != "" and reload_clock <= 0.0:
 		finish_reload()
+	if dialogue_panel != null and dialogue_panel.visible:
+		fire_held = false
+		return
 	var pressed := fire_held or Input.is_key_pressed(KEY_SPACE)
 	var gun := selected_gun()
 	if pressed and (bool(gun["auto"]) or not fire_latched):
@@ -208,6 +221,9 @@ func _physics_process(delta: float) -> void:
 func _process(delta: float) -> void:
 	if hero == null:
 		return
+	if dialogue_panel != null and dialogue_panel.visible:
+		if not is_instance_valid(conversation_actor) or conversation_actor.dead or conversation_actor.panic_time > 0.0 or hero.dead or wanted > 0 or hero.global_position.distance_to(conversation_actor.global_position) > 4.5:
+			end_conversation()
 	if is_instance_valid(engine_audio) and is_instance_valid(car_driven):
 		engine_audio.pitch_scale = clampf(0.72 + absf(car_driven.drive_speed) / 20.0, 0.7, 2.4)
 		engine_audio.volume_db = -28.0 + minf(10.0, absf(car_driven.drive_speed) * 0.3)
@@ -447,6 +463,8 @@ func finish_reload() -> void:
 	reload_weapon_id = ""
 
 func on_hero_damaged(points: float) -> void:
+	if dialogue_panel != null and dialogue_panel.visible:
+		end_conversation()
 	sound.play("hurt", hero.global_position, -8.0)
 	Fx.impact(self, hero.global_position + Vector3(0.0, 1.45, 0.0), Color("#ff7371"), points)
 	if is_instance_valid(hurt_overlay):
@@ -456,6 +474,8 @@ func on_hero_damaged(points: float) -> void:
 
 
 func on_hero_died() -> void:
+	if dialogue_panel != null and dialogue_panel.visible:
+		end_conversation()
 	if death_pending:
 		return
 	death_pending = true
@@ -469,6 +489,8 @@ func on_hero_died() -> void:
 	)
 
 func on_actor_injured(actor: PocketActor) -> void:
+	if conversation_actor == actor and dialogue_panel != null and dialogue_panel.visible:
+		end_conversation()
 	if not actor.has_meta("crime_recorded"):
 		actor.set_meta("crime_recorded", true)
 		add_wanted(2 if actor.officer else 1)
@@ -536,6 +558,9 @@ func next_weapon() -> void:
 
 
 func interaction() -> void:
+	if dialogue_panel != null and dialogue_panel.visible:
+		end_conversation()
+		return
 	if hero.dead or carjack_busy:
 		return
 	if shop_panel.visible:
@@ -559,6 +584,11 @@ func interaction() -> void:
 		exit_car()
 		return
 	var door := city.closest_door(hero.global_position)
+	if wanted == 0:
+		var resident := city.closest_resident(hero.global_position)
+		if resident != null and (door.is_empty() or hero.global_position.distance_to(door["door"]) > 1.6):
+			begin_conversation(resident)
+			return
 	if not door.is_empty():
 		if bool(door["shop"]):
 			open_shop()
@@ -753,6 +783,20 @@ func load_game() -> void:
 	mission_limit = maxf(0.0, float(decoded.get("mission_limit", 0.0)))
 	mission_reward = maxi(0, int(decoded.get("mission_reward", 0)))
 	layouts = decoded.get("interiors", {})
+	resident_relations.clear()
+	var saved_residents = decoded.get("residents", {})
+	if saved_residents is Dictionary:
+		for resident_key in saved_residents:
+			var resident_value = saved_residents[resident_key]
+			if not resident_value is Dictionary:
+				continue
+			var slot := String(resident_key)
+			if not slot.is_valid_int() or int(slot) < 0 or int(slot) >= city.people.size():
+				continue
+			resident_relations[slot] = {
+				"talks": clampi(int(resident_value.get("talks", 0)), 0, 100000),
+				"affinity": clampi(int(resident_value.get("affinity", 0)), 0, 100)
+			}
 	looted_buildings.clear()
 	for location in decoded.get("looted", []):
 		looted_buildings.append(String(location))
@@ -793,6 +837,7 @@ func save_game() -> void:
 		"mission_limit": mission_limit,
 		"mission_reward": mission_reward,
 		"interiors": layouts,
+		"residents": resident_relations,
 		"looted": looted_buildings,
 		"owned": owned_weapons,
 		"ammo": ammunition,
@@ -804,6 +849,13 @@ func save_game() -> void:
 		push_warning("Save could not be written; last good backup was kept.")
 
 func _input(event: InputEvent) -> void:
+	if dialogue_panel != null and dialogue_panel.visible:
+		if event is InputEventKey and event.pressed and not event.echo:
+			if event.keycode == KEY_ESCAPE or event.keycode == KEY_E or event.keycode == KEY_F:
+				end_conversation()
+			elif event.keycode >= KEY_1 and event.keycode <= KEY_4:
+				select_conversation_option(event.keycode - KEY_1)
+		return
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_E or event.keycode == KEY_F:
 			interaction()
@@ -890,6 +942,10 @@ func update_hud() -> void:
 		crosshair_label.visible = true
 		crosshair_label.position = camera.unproject_position(target_world) - Vector2(17, 20)
 		crosshair_label.size = Vector2(34, 36)
+	var nearby_door := city.closest_door(hero.global_position) if not indoors else {}
+	var nearby_resident: PocketActor = null
+	if not indoors and car_driven == null and wanted == 0:
+		nearby_resident = city.closest_resident(hero.global_position)
 	var caption := "MOVE: PAD  •  CAMERA: SWIPE SCENE  •  ACTION"
 	if hero.dead:
 		caption = "WASTED  •  RESPAWNING"
@@ -902,9 +958,11 @@ func update_hud() -> void:
 			caption = "ACTION: EXIT" if interior.exit_near(hero.global_position) else "RETURN TO THE EXIT MARKER"
 	elif car_driven != null:
 		caption = "ACTION: EXIT CAR  •  STICK TO DRIVE"
-	elif not city.closest_door(hero.global_position).is_empty():
-		var door := city.closest_door(hero.global_position)
-		caption = "ACTION: GUN SHOP" if bool(door["shop"]) else "ACTION: ENTER BUILDING"
+	elif nearby_resident != null and (nearby_door.is_empty() or hero.global_position.distance_to(nearby_door["door"]) > 1.6):
+		var profile: Dictionary = ResidentDialogue.make_profile(nearby_resident.resident_id)
+		caption = "ACTION: 話す - %s" % String(profile["name"])
+	elif not nearby_door.is_empty():
+		caption = "ACTION: GUN SHOP" if bool(nearby_door["shop"]) else "ACTION: ENTER BUILDING"
 	elif city.closest_car(hero.global_position) != null:
 		caption = "ACTION: TAKE VEHICLE"
 	elif hero.global_position.distance_to(mission_point) < 5.2:
@@ -986,6 +1044,7 @@ func setup_ui() -> void:
 	ui.add_child(perf_overlay)
 	create_shop_ui()
 	create_settings_ui()
+	create_dialogue_ui()
 
 
 func style(background: Color, radius: int) -> StyleBoxFlat:
@@ -1015,6 +1074,121 @@ func make_button(caption: String, background: Color) -> Button:
 	button.add_theme_stylebox_override("hover", style(background.lightened(0.2), 18))
 	button.add_theme_stylebox_override("pressed", style(background.darkened(0.25), 18))
 	return button
+
+
+func create_dialogue_ui() -> void:
+	dialogue_panel = Panel.new()
+	dialogue_panel.name = "ResidentDialogue"
+	dialogue_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	dialogue_panel.add_theme_stylebox_override("panel", style(Color("#1c2f39"), 18))
+	ui.add_child(dialogue_panel)
+	var padding := MarginContainer.new()
+	padding.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	for side in ["left", "right", "top", "bottom"]:
+		padding.add_theme_constant_override("margin_" + side, 17)
+	dialogue_panel.add_child(padding)
+	var stack := VBoxContainer.new()
+	stack.add_theme_constant_override("separation", 8)
+	padding.add_child(stack)
+	dialogue_speaker = make_label(25, Color("#f6d797"))
+	stack.add_child(dialogue_speaker)
+	dialogue_text = make_label(20, Color("#f3f6fb"))
+	dialogue_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	dialogue_text.custom_minimum_size = Vector2(0, 112)
+	dialogue_text.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	stack.add_child(dialogue_text)
+	for index in range(4):
+		var choice := make_button("", Color("#386574"))
+		choice.custom_minimum_size = Vector2(0, 52)
+		choice.add_theme_font_size_override("font_size", 18)
+		choice.pressed.connect(select_conversation_option.bind(index))
+		dialogue_options.append(choice)
+		stack.add_child(choice)
+	dialogue_exit = make_button("会話を終える", Color("#68545e"))
+	dialogue_exit.custom_minimum_size = Vector2(0, 52)
+	dialogue_exit.pressed.connect(end_conversation)
+	stack.add_child(dialogue_exit)
+	dialogue_panel.visible = false
+
+
+func begin_conversation(resident: PocketActor) -> void:
+	if not is_instance_valid(resident) or resident.dead or resident.officer or resident.panic_time > 0.0:
+		return
+	if resident.resident_id < 0 or hero.dead or car_driven != null or indoors or wanted > 0:
+		return
+	if dialogue_panel == null or dialogue_panel.visible:
+		return
+	var key := str(resident.resident_id)
+	var record: Dictionary = resident_relations.get(key, {"talks": 0, "affinity": 0})
+	var profile: Dictionary = ResidentDialogue.make_profile(resident.resident_id)
+	var tree: Dictionary = ResidentDialogue.make_tree(profile, int(record.get("talks", 0)), int(record.get("affinity", 0)))
+	if not ResidentDialogue.is_valid_tree(tree):
+		push_warning("Invalid conversation tree for resident " + key)
+		return
+	record["talks"] = mini(100000, int(record.get("talks", 0)) + 1)
+	resident_relations[key] = record
+	conversation_tree = tree
+	conversation_node = String(tree["start"])
+	conversation_actor = resident
+	resident.chatting = true
+	resident.chat_target = hero
+	stick_value = Vector2.ZERO
+	fire_held = false
+	dialogue_panel.visible = true
+	sound.play_ui("ui")
+	update_conversation_panel()
+
+
+func select_conversation_option(index: int) -> void:
+	if dialogue_panel == null or not dialogue_panel.visible:
+		return
+	var nodes: Dictionary = conversation_tree.get("nodes", {})
+	var current: Dictionary = nodes.get(conversation_node, {})
+	var choices: Array = current.get("choices", [])
+	if index < 0 or index >= choices.size():
+		return
+	var choice: Dictionary = choices[index]
+	if is_instance_valid(conversation_actor):
+		var key := str(conversation_actor.resident_id)
+		var record: Dictionary = resident_relations.get(key, {"talks": 1, "affinity": 0})
+		record["affinity"] = clampi(int(record.get("affinity", 0)) + int(choice.get("affinity", 0)), 0, 100)
+		resident_relations[key] = record
+	conversation_node = String(choice["next"])
+	sound.play_ui("ui")
+	update_conversation_panel()
+	save_game()
+
+
+func update_conversation_panel() -> void:
+	if dialogue_panel == null or not dialogue_panel.visible or not is_instance_valid(conversation_actor):
+		return
+	var profile: Dictionary = ResidentDialogue.make_profile(conversation_actor.resident_id)
+	var record: Dictionary = resident_relations.get(str(conversation_actor.resident_id), {})
+	dialogue_speaker.text = "%s    ♥ %d" % [profile["name"], int(record.get("affinity", 0))]
+	var node: Dictionary = conversation_tree["nodes"].get(conversation_node, {})
+	dialogue_text.text = String(node.get("text", "また話しましょう。"))
+	var choices: Array = node.get("choices", [])
+	for i in range(dialogue_options.size()):
+		var button := dialogue_options[i]
+		button.visible = i < choices.size()
+		if button.visible:
+			button.text = "%d. %s" % [i + 1, String(choices[i]["text"])]
+	dialogue_exit.text = "またね / 閉じる" if choices.is_empty() else "会話を終える"
+
+
+func end_conversation() -> void:
+	if dialogue_panel == null or not dialogue_panel.visible:
+		return
+	if is_instance_valid(conversation_actor):
+		conversation_actor.chatting = false
+		conversation_actor.chat_target = null
+	conversation_actor = null
+	conversation_tree.clear()
+	conversation_node = ""
+	dialogue_panel.visible = false
+	stick_value = Vector2.ZERO
+	fire_held = false
+	save_game()
 
 
 func create_shop_ui() -> void:
@@ -1214,3 +1388,6 @@ func layout_ui() -> void:
 		settings_panel.position = (screen - settings_panel.size) * 0.5
 	shop_panel.size = Vector2(minf(screen.x - 30, 540), minf(screen.y - 55, 620))
 	shop_panel.position = (screen - shop_panel.size) * 0.5
+	if dialogue_panel != null:
+		dialogue_panel.size = Vector2(minf(screen.x - 22.0, 560.0), minf(screen.y - 32.0, 540.0))
+		dialogue_panel.position = (screen - dialogue_panel.size) * 0.5
