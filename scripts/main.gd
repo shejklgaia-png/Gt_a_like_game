@@ -1212,7 +1212,7 @@ func continue_conversation() -> void:
 	var record: Dictionary = resident_relations.get(key, {"talks": 1, "affinity": 0, "topics_seen": 0})
 	var cursor: int = maxi(0, int(record.get("topics_seen", 0)))
 	var profile: Dictionary = ResidentDialogue.make_profile(conversation_actor.resident_id)
-	var tree: Dictionary = ResidentDialogue.make_tree(profile, cursor, int(record.get("affinity", 0)))
+	var tree: Dictionary = ResidentDialogue.make_tree(profile, cursor, int(record.get("affinity", 0)), true)
 	if not ResidentDialogue.is_valid_tree(tree):
 		push_warning("Could not continue resident conversation " + key)
 		end_conversation()
