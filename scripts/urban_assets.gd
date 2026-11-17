@@ -13,6 +13,9 @@ static func install(parent: Node3D, blocks: Array[Dictionary]) -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 40542
 	for building_index in range(blocks.size()):
+		# The mobile editor shares GPU memory with the game: half-density decor.
+		if OS.get_name() == "Android" and building_index % 2 != 0:
+			continue
 		var block: Dictionary = blocks[building_index]
 		var center: Vector3 = block["position"]
 		var half_width: float = float(block["width"]) * 0.5
