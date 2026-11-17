@@ -11,6 +11,7 @@ const SoundBank = preload("res://scripts/sound_bank.gd")
 const MapScript = preload("res://scripts/minimap.gd")
 const PerfScript = preload("res://scripts/perf_overlay.gd")
 const ResidentDialogue = preload("res://scripts/resident_dialogue.gd")
+const SessionDiagnostics = preload("res://scripts/session_diagnostics.gd")
 
 var WEAPONS: Array[Dictionary] = GameData.weapons()
 const SAVE_PATH := "user://pocket_district_save.json"
@@ -108,6 +109,7 @@ var dialogue_speaker: Label
 var dialogue_text: Label
 var dialogue_options: Array[Button] = []
 var dialogue_exit: Button
+var session_diagnostics: PocketSessionDiagnostics
 
 
 func _ready() -> void:
@@ -145,6 +147,13 @@ func _ready() -> void:
 		city.update_mobile_activity(hero.global_position)
 	hero.equip_weapon(String(selected_gun()["id"]))
 	setup_ui()
+	if mobile_optimization_enabled:
+		session_diagnostics = SessionDiagnostics.new()
+		session_diagnostics.game = self
+		add_child(session_diagnostics)
+		if session_diagnostics.previous_unexpected:
+			display_message = session_diagnostics.previous_summary()
+			display_message_time = 12.0
 	make_mission_marker()
 	sound.play_ui("ui")
 	get_viewport().size_changed.connect(layout_ui)
