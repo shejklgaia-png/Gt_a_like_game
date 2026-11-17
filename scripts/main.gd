@@ -12,6 +12,8 @@ const MapScript = preload("res://scripts/minimap.gd")
 const PerfScript = preload("res://scripts/perf_overlay.gd")
 const ResidentDialogue = preload("res://scripts/resident_dialogue.gd")
 const SessionDiagnostics = preload("res://scripts/session_diagnostics.gd")
+const Stores = preload("res://scripts/store_catalog.gd")
+const Furniture = preload("res://scripts/furniture_catalog.gd")
 
 var WEAPONS: Array[Dictionary] = GameData.weapons()
 const SAVE_PATH := "user://pocket_district_save.json"
@@ -28,6 +30,11 @@ var indoors: bool = false
 var active_building: String = ""
 var outdoor_exit: Vector3
 var layouts: Dictionary = {}
+var purchased_homes: Dictionary = {}
+var placed_furniture: Dictionary = {}
+var furniture_inventory: Dictionary = {}
+var building_visits: Dictionary = {}
+var outfit_color: String = "#3b9da8"
 var looted_buildings: Array[String] = []
 var owned_weapons: Array[String] = ["Handgun"]
 var current_weapon: int = 0
@@ -95,6 +102,11 @@ var stick_outer: Panel
 var stick_knob: Panel
 var shop_panel: Panel
 var shop_label: Label
+var commerce_panel: Panel
+var commerce_header: Label
+var commerce_buttons: Array[Button] = []
+var commerce_options: Array[Dictionary] = []
+var commerce_lot: Dictionary = {}
 var shop_buttons: Dictionary = {}
 var stick_pointer: int = -1
 var stick_value := Vector2.ZERO
@@ -131,6 +143,7 @@ func _ready() -> void:
 	interior.name = "IndoorWorld"
 	interior.visible = false
 	add_child(interior)
+	interior.process_mode = Node.PROCESS_MODE_DISABLED
 	hero = HeroScript.new()
 	hero.name = "Player"
 	hero.position = Vector3(18.0, 0.30, -34.0)
@@ -147,6 +160,7 @@ func _ready() -> void:
 	for person in city.people:
 		connect_actor(person)
 	load_game()
+	apply_outfit()
 	if mobile_optimization_enabled:
 		city.update_mobile_activity(hero.global_position)
 	hero.equip_weapon(String(selected_gun()["id"]))
@@ -200,7 +214,7 @@ func _physics_process(delta: float) -> void:
 	if pressed and (bool(gun["auto"]) or not fire_latched):
 		shoot()
 	fire_latched = pressed
-	if shop_panel != null and shop_panel.visible:
+	if (shop_panel != null and shop_panel.visible) or (commerce_panel != null and commerce_panel.visible):
 		return
 	var motion := read_motion()
 	if not carjack_busy and not hero.dead:
@@ -361,7 +375,7 @@ func rotate_camera(relative: Vector2) -> void:
 
 
 func shoot() -> void:
-	if hero.dead or carjack_busy or shoot_clock > 0.0 or reload_weapon_id != "" or (shop_panel != null and shop_panel.visible):
+	if hero.dead or carjack_busy or shoot_clock > 0.0 or reload_weapon_id != "" or (shop_panel != null and shop_panel.visible) or (commerce_panel != null and commerce_panel.visible):
 		return
 	var gun := selected_gun()
 	var gun_id: String = gun["id"]
@@ -388,7 +402,7 @@ func shoot() -> void:
 	var excludes: Array[RID] = [hero.get_rid()]
 	if is_instance_valid(car_driven):
 		excludes.append(car_driven.get_rid())
-	var actors: Array[Node] = city.person_root.get_children() + city.police_root.get_children() if not indoors else []
+	var actors: Array[Node] = city.person_root.get_children() + city.police_root.get_children() if not indoors else Array(interior.occupants)
 	for item in actors:
 		var candidate := item as PocketActor
 		if not is_instance_valid(candidate) or candidate.dead:
@@ -518,6 +532,8 @@ func on_hero_died() -> void:
 func on_actor_injured(actor: PocketActor) -> void:
 	if conversation_actor == actor and dialogue_panel != null and dialogue_panel.visible:
 		end_conversation()
+	if actor.mafia:
+		return
 	if not actor.has_meta("crime_recorded"):
 		actor.set_meta("crime_recorded", true)
 		add_wanted(2 if actor.officer else 1)
@@ -527,6 +543,9 @@ func on_actor_died(actor: PocketActor) -> void:
 	if actor.officer:
 		add_wanted(1)
 		sound.play("death", actor.global_position, -8.0)
+		return
+	if actor.indoor_mode:
+		sound.play("death", actor.global_position, -9.0)
 		return
 	sound.play("death", actor.global_position, -10.0)
 	get_tree().create_timer(8.0).timeout.connect(func() -> void:
@@ -593,6 +612,9 @@ func interaction() -> void:
 	if shop_panel.visible:
 		close_shop()
 		return
+	if commerce_panel != null and commerce_panel.visible:
+		close_commerce()
+		return
 	if indoors:
 		if interior.loot_near(hero.global_position):
 			var reward := interior.search_loot(hero.global_position)
@@ -606,6 +628,8 @@ func interaction() -> void:
 				save_game()
 		elif interior.exit_near(hero.global_position):
 			leave_interior()
+		elif purchased_homes.has(active_building):
+			open_home_furniture_menu()
 		return
 	if car_driven != null:
 		exit_car()
@@ -619,6 +643,8 @@ func interaction() -> void:
 	if not door.is_empty():
 		if bool(door["shop"]):
 			open_shop()
+		elif String(door.get("business", "")) == "apartment" or Stores.is_retail(String(door.get("business", ""))):
+			open_commerce_for(door)
 		else:
 			enter_interior(door)
 		return
@@ -721,14 +747,21 @@ func enter_interior(door: Dictionary) -> void:
 	if not layouts.has(active_building):
 		layouts[active_building] = InteriorScript.make_layout(active_building)
 		save_game()
-	interior.display_layout(active_building, layouts[active_building], looted_buildings.has(active_building))
+	building_visits[active_building] = int(building_visits.get(active_building, 0)) + 1
+	var room_items: Array = placed_furniture.get(active_building, [])
+	var own_room: bool = purchased_homes.has(active_building)
+	interior.display_layout(active_building, layouts[active_building], looted_buildings.has(active_building), String(door.get("business", "general")), own_room, room_items, int(building_visits[active_building]))
+	for visitor in interior.occupants:
+		connect_actor(visitor)
 	indoors = true
 	sound.set_indoors(true)
 	city.visible = false
 	city.process_mode = Node.PROCESS_MODE_DISABLED
 	interior.visible = true
+	interior.process_mode = Node.PROCESS_MODE_INHERIT
 	sky.environment.background_color = Color("#373b40")
 	hero.global_position = InteriorScript.INTERIOR_ORIGIN + Vector3(0, 0.35, 6.5)
+	interior.arm_hostiles(hero)
 	hero.velocity = Vector3.ZERO
 	stick_value = Vector2.ZERO
 
@@ -737,6 +770,7 @@ func leave_interior() -> void:
 	indoors = false
 	sound.set_indoors(false)
 	interior.visible = false
+	interior.process_mode = Node.PROCESS_MODE_DISABLED
 	city.visible = true
 	city.process_mode = Node.PROCESS_MODE_INHERIT
 	sky.environment.background_color = Color("#819fb4")
@@ -814,6 +848,7 @@ func load_game() -> void:
 	mission_limit = maxf(0.0, float(decoded.get("mission_limit", 0.0)))
 	mission_reward = maxi(0, int(decoded.get("mission_reward", 0)))
 	layouts = decoded.get("interiors", {})
+	load_housing_state(decoded)
 	resident_relations.clear()
 	var saved_residents = decoded.get("residents", {})
 	if saved_residents is Dictionary:
@@ -869,6 +904,11 @@ func save_game() -> void:
 		"mission_limit": mission_limit,
 		"mission_reward": mission_reward,
 		"interiors": layouts,
+		"homes": purchased_homes,
+		"furnishings": placed_furniture,
+		"furniture_inventory": furniture_inventory,
+		"building_visits": building_visits,
+		"outfit_color": outfit_color,
 		"residents": resident_relations,
 		"looted": looted_buildings,
 		"owned": owned_weapons,
@@ -881,6 +921,10 @@ func save_game() -> void:
 		push_warning("Save could not be written; last good backup was kept.")
 
 func _input(event: InputEvent) -> void:
+	if commerce_panel != null and commerce_panel.visible:
+		if event is InputEventKey and event.pressed and not event.echo and event.keycode in [KEY_ESCAPE, KEY_E, KEY_F]:
+			close_commerce()
+		return
 	if dialogue_panel != null and dialogue_panel.visible:
 		if event is InputEventKey and event.pressed and not event.echo:
 			if event.keycode == KEY_ESCAPE or event.keycode == KEY_E or event.keycode == KEY_F:
@@ -902,7 +946,7 @@ func _input(event: InputEvent) -> void:
 		elif event.keycode == KEY_P:
 			toggle_settings()
 	if event is InputEventScreenTouch:
-		if event.pressed and not on_action_button(event.position) and not shop_panel.visible:
+		if event.pressed and not on_action_button(event.position) and not shop_panel.visible and (commerce_panel == null or not commerce_panel.visible):
 			if stick_pointer == -1 and (event.position - stick_center).length() < 145.0:
 				stick_pointer = event.index
 				update_stick(event.position)
@@ -986,15 +1030,19 @@ func update_hud() -> void:
 	elif indoors:
 		if interior.loot_near(hero.global_position):
 			caption = "ACTION: SEARCH CACHE"
+		elif interior.exit_near(hero.global_position):
+			caption = "ACTION: EXIT"
+		elif purchased_homes.has(active_building):
+			caption = "ACTION: 家具を配置"
 		else:
-			caption = "ACTION: EXIT" if interior.exit_near(hero.global_position) else "RETURN TO THE EXIT MARKER"
+			caption = "RETURN TO THE EXIT MARKER"
 	elif car_driven != null:
 		caption = "ACTION: EXIT CAR  •  STICK TO DRIVE"
 	elif nearby_resident != null and (nearby_door.is_empty() or hero.global_position.distance_to(nearby_door["door"]) > 1.6):
 		var profile: Dictionary = ResidentDialogue.make_profile(nearby_resident.resident_id)
 		caption = "ACTION: 話す - %s" % String(profile["name"])
 	elif not nearby_door.is_empty():
-		caption = "ACTION: GUN SHOP" if bool(nearby_door["shop"]) else "ACTION: ENTER BUILDING"
+		caption = "ACTION: GUN SHOP" if bool(nearby_door["shop"]) else ("ACTION: %s" % String(nearby_door.get("business", "ENTER")).to_upper())
 	elif city.closest_car(hero.global_position) != null:
 		caption = "ACTION: TAKE VEHICLE"
 	elif hero.global_position.distance_to(mission_point) < 5.2:
@@ -1075,6 +1123,7 @@ func setup_ui() -> void:
 	perf_overlay = PerfScript.new()
 	ui.add_child(perf_overlay)
 	create_shop_ui()
+	create_commerce_ui()
 	create_settings_ui()
 	create_dialogue_ui()
 
@@ -1413,6 +1462,8 @@ func toggle_settings() -> void:
 	var show := not settings_panel.visible
 	settings_panel.visible = show
 	shop_panel.visible = false
+	if commerce_panel != null:
+		commerce_panel.visible = false
 	fire_held = false
 	stick_value = Vector2.ZERO
 	get_tree().paused = show
