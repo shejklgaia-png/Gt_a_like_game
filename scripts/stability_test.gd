@@ -35,6 +35,29 @@ func run_stability() -> void:
 		if not person.is_inside_tree() or person.target == Vector3.ZERO:
 			fail("Civilian route was not initialized after scene attachment", 83)
 			return
+	# Simulate Android distant-actor suspension and recovery on the CI runner.
+	var distant_resident: PocketActor = null
+	for person in game.city.people:
+		var delta_flat := Vector2(person.global_position.x - game.hero.global_position.x, person.global_position.z - game.hero.global_position.z)
+		if delta_flat.length_squared() > game.city.RESIDENT_ACTIVE_DISTANCE_SQ:
+			distant_resident = person
+			break
+	if distant_resident == null:
+		fail("No distant resident available for Android LOD test", 91)
+		return
+	game.city.update_mobile_activity(game.hero.global_position)
+	if distant_resident.visible or distant_resident.is_physics_processing() or distant_resident.collision_layer != 0:
+		fail("Distant resident continued simulating in Android LOD", 92)
+		return
+	game.city.update_mobile_activity(distant_resident.global_position)
+	if not distant_resident.visible or not distant_resident.is_physics_processing() or distant_resident.collision_layer != 2:
+		fail("Resident did not reactivate after approaching", 93)
+		return
+	game.city.restore_all_activity()
+	for citizen in game.city.people:
+		if not citizen.visible or not citizen.is_physics_processing():
+			fail("Android LOD recovery did not restore full civilian population", 94)
+			return
 	# 200 rapid sound requests must not allocate an unlimited number of players.
 	for i in range(200):
 		game.sound.play_ui("ui")
@@ -44,11 +67,12 @@ func run_stability() -> void:
 	# Exercise the usual 18-second autosave multiple times without replacing
 	# an existing player's save data. Explicit save writes also exercise backup rotation.
 	for i in range(3):
+		game.cash += i + 1
 		game.autosave_clock = 18.1
 		await process_frame
 		await process_frame
-		var data: Dictionary = SafeSave.load_json(game.SAVE_PATH)
-		if data.is_empty() or not data.has("residents") or int(data.get("version", 0)) != 2:
+		var data: Dictionary = SafeSave.load_json(game.save_destination())
+		if data.is_empty() or not data.has("residents") or int(data.get("version", 0)) != 2 or int(data.get("cash", -1)) != game.cash:
 			fail("Repeated autosaves did not preserve game state", 85)
 			return
 	# Stress a civilian death and 8-second delayed replacement as well.
@@ -56,7 +80,7 @@ func run_stability() -> void:
 	resident.hit(200.0)
 	game.wanted = 0
 	# Run past the natural autosave deadline and the delayed respawn timer.
-	for frame in range(1350):
+	for frame in range(2700):
 		await physics_frame
 		if frame % 300 == 0 and game.sound.one_shot_voice_count() > game.sound.MAX_ONE_SHOT_VOICES:
 			fail("One-shot voice count increased beyond its cap", 86)
@@ -74,5 +98,5 @@ func run_stability() -> void:
 	if game.sound.one_shot_voice_count() > game.sound.MAX_ONE_SHOT_VOICES:
 		fail("Audio players were not bounded in the long session", 90)
 		return
-	print("PASS: 1,350 physics frames, 3 autosaves, resident respawn, sound-voice cap, node-count guard")
+	print("PASS: 2,700 physics frames, 3 isolated autosaves, Android LOD recovery, resident respawn, voice cap, node guard")
 	quit(0)
