@@ -10,6 +10,8 @@ var drive_speed: float = 0.0
 var axis: int = 0
 var travel: float = 1.0
 var road_lane: float = 0.0
+var npc_route: Array[Vector3] = []
+var route_index: int = 0
 var drive_input: Vector2 = Vector2.ZERO
 var nitro: bool = false
 var tint: Color = Color("#e5bd64")
@@ -127,6 +129,31 @@ func _physics_process(delta: float) -> void:
 		var turn_factor := clampf(absf(drive_speed) / 8.0, 0.0, 1.0)
 		rotation.y -= drive_input.x * delta * 1.55 * turn_factor * (1.0 if drive_speed >= 0 else -1.0)
 		velocity = -global_transform.basis.z * drive_speed
+	elif not npc_route.is_empty():
+		if route_index < 0 or route_index >= npc_route.size():
+			route_index = 0
+		var destination: Vector3 = npc_route[route_index]
+		var heading: Vector3 = destination - global_position
+		heading.y = 0.0
+		if heading.length() < 3.0:
+			route_index += 1
+			if route_index >= npc_route.size():
+				# The highway and ring traffic are visual loops. An offscreen
+				# vehicle recycles to its start, as the original grid traffic did.
+				route_index = 1
+				position = npc_route[0] + Vector3(0, 0.7, 0)
+			destination = npc_route[route_index]
+			heading = destination - global_position
+			heading.y = 0.0
+		if heading.length_squared() > 0.01:
+			heading = heading.normalized()
+			rotation.y = atan2(-heading.x, -heading.z)
+		sensor_timer -= delta
+		if sensor_timer <= 0.0:
+			sensor_timer = 0.12
+			front_blocked = pedestrian_ahead()
+		drive_speed = move_toward(drive_speed, 0.0 if front_blocked else npc_speed, delta * (25.0 if front_blocked else 8.0))
+		velocity = heading * drive_speed
 	else:
 		var heading := Vector3.ZERO
 		if axis == 0:
@@ -159,7 +186,7 @@ func _physics_process(delta: float) -> void:
 		stationary_time += delta
 	else:
 		stationary_time = 0.0
-	if not occupied and not being_stolen:
+	if not occupied and not being_stolen and npc_route.is_empty():
 		if axis == 0 and absf(position.z) > 121.0:
 			position.z = -signf(position.z) * 120.0
 		elif axis == 1 and absf(position.x) > 121.0:
