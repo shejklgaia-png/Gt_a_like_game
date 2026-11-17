@@ -29,6 +29,8 @@ jobs:
         run: godot --headless --path . --script res://scripts/smoke_test.gd
       - name: Run extended autonomous simulation
         run: godot --headless --path . --script res://scripts/simulation_test.gd
+      - name: Verify city zoning, freeway, home purchases, furniture and indoor encounters
+        run: godot --headless --path . --script res://scripts/district_test.gd
       - name: Test Android-only startup and diagnostic lifecycle
         run: godot --headless --path . --script res://scripts/android_runtime_test.gd
       - name: Run sustained-play and autosave stability regression
