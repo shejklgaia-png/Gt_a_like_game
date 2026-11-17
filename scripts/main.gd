@@ -1469,6 +1469,257 @@ func toggle_settings() -> void:
 	get_tree().paused = show
 
 
+func create_commerce_ui() -> void:
+	commerce_panel = Panel.new()
+	commerce_panel.name = "CityCommerce"
+	commerce_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	commerce_panel.add_theme_stylebox_override("panel", style(Color("#1d2d39"), 16))
+	ui.add_child(commerce_panel)
+	var padding := MarginContainer.new()
+	padding.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	for side in ["left", "right", "top", "bottom"]:
+		padding.add_theme_constant_override("margin_" + side, 12)
+	commerce_panel.add_child(padding)
+	var stack := VBoxContainer.new()
+	stack.add_theme_constant_override("separation", 6)
+	padding.add_child(stack)
+	commerce_header = make_label(20, Color("#f6d797"))
+	commerce_header.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	commerce_header.custom_minimum_size.y = 54
+	stack.add_child(commerce_header)
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	stack.add_child(scroll)
+	var content := VBoxContainer.new()
+	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(content)
+	for slot in range(11):
+		var button := make_button("", Color("#365e6d"))
+		button.custom_minimum_size.y = 54
+		button.add_theme_font_size_override("font_size", 17)
+		button.pressed.connect(select_commerce_option.bind(slot))
+		commerce_buttons.append(button)
+		content.add_child(button)
+	var leave := make_button("閉じる", Color("#6c5460"))
+	leave.custom_minimum_size.y = 48
+	leave.pressed.connect(close_commerce)
+	stack.add_child(leave)
+	commerce_panel.visible = false
+
+
+func show_commerce(title: String, options: Array[Dictionary], lot: Dictionary = {}) -> void:
+	commerce_lot = lot
+	commerce_options = options
+	commerce_header.text = title + "     所持金 $" + str(cash)
+	commerce_panel.visible = true
+	fire_held = false
+	stick_value = Vector2.ZERO
+	for i in range(commerce_buttons.size()):
+		var button: Button = commerce_buttons[i]
+		button.visible = i < commerce_options.size()
+		if button.visible:
+			button.text = String(commerce_options[i].get("text", ""))
+
+
+func open_commerce_for(lot: Dictionary) -> void:
+	var business: String = String(lot.get("business", "general"))
+	var choices: Array[Dictionary] = []
+	if business == "apartment":
+		var listing: String = String(lot["id"])
+		if not purchased_homes.has(listing):
+			choices.append({"text": "この住居を購入 $%d" % int(lot["home_price"]), "type": "buy_home", "cost": int(lot["home_price"])})
+		choices.append({"text": "室内を見学・入室", "type": "enter"})
+	elif Stores.is_retail(business):
+		for merchandise in Stores.items(business):
+			choices.append({
+				"text": "%s    $%d" % [String(merchandise["name"]), int(merchandise["price"])],
+				"type": "buy_stock", "merchandise": merchandise
+			})
+		choices.append({"text": "店内に入る", "type": "enter"})
+	else:
+		enter_interior(lot)
+		return
+	show_commerce(String(lot.get("district_name", "")) + " / " + business, choices, lot)
+
+
+func open_home_furniture_menu() -> void:
+	if not indoors or not purchased_homes.has(active_building):
+		return
+	var choices: Array[Dictionary] = []
+	for item in Furniture.STOCK:
+		var id: String = String(item["id"])
+		var amount: int = int(furniture_inventory.get(id, 0))
+		if amount > 0:
+			choices.append({"text": "%s を置く（所持 %d）" % [String(item["name"]), amount], "type": "place", "kind": id})
+	choices.append({"text": "近くの家具をしまう", "type": "remove"})
+	show_commerce("マイルーム / 家具を配置", choices)
+
+
+func select_commerce_option(index: int) -> void:
+	if commerce_panel == null or not commerce_panel.visible or index < 0 or index >= commerce_options.size():
+		return
+	var entry: Dictionary = commerce_options[index]
+	var action: String = String(entry.get("type", ""))
+	match action:
+		"enter":
+			var lot: Dictionary = commerce_lot.duplicate(true)
+			close_commerce()
+			enter_interior(lot)
+		"buy_home":
+			var cost: int = int(entry.get("cost", 0))
+			if cost < 1 or cash < cost:
+				show_message("NOT ENOUGH CASH")
+				return
+			cash -= cost
+			purchased_homes[String(commerce_lot["id"])] = true
+			save_game()
+			var bought: Dictionary = commerce_lot.duplicate(true)
+			open_commerce_for(bought)
+			show_message("HOME PURCHASED")
+		"buy_stock":
+			var item: Dictionary = entry["merchandise"]
+			var cost: int = int(item.get("price", 0))
+			if cost < 1 or cash < cost:
+				show_message("NOT ENOUGH CASH")
+				return
+			cash -= cost
+			if bool(item.get("furniture", false)):
+				var kind: String = String(item["id"])
+				furniture_inventory[kind] = int(furniture_inventory.get(kind, 0)) + 1
+			elif item.has("heal"):
+				hero.hp = minf(hero.max_hp, hero.hp + float(item["heal"]))
+			elif item.has("outfit"):
+				outfit_color = String(item["outfit"])
+				apply_outfit()
+			commerce_header.text = "購入済み / 所持金 $" + str(cash)
+			sound.play_ui("cash")
+			save_game()
+		"place":
+			place_home_item(String(entry.get("kind", "")))
+		"remove":
+			remove_nearby_furniture()
+
+
+func place_home_item(kind: String) -> void:
+	if not indoors or not purchased_homes.has(active_building):
+		return
+	if int(furniture_inventory.get(kind, 0)) <= 0:
+		return
+	var forward: Vector3 = -hero.body_visual.global_transform.basis.z
+	forward.y = 0.0
+	forward = forward.normalized()
+	var local: Vector3 = hero.global_position - InteriorScript.INTERIOR_ORIGIN + forward * 2.1
+	local.y = 0.0
+	local.x = snappedf(local.x, 0.5)
+	local.z = snappedf(local.z, 0.5)
+	var items: Array = placed_furniture.get(active_building, [])
+	if items.size() >= 32 or not interior.valid_furniture_position(local, kind, items):
+		show_message("配置できません：壁・家具・出口との距離を確認")
+		return
+	var record := {"kind": kind, "x": local.x, "z": local.z, "rotation": snappedf(hero.body_visual.rotation.y, PI * 0.5)}
+	if not interior.add_furniture(record):
+		return
+	items.append(record)
+	placed_furniture[active_building] = items
+	furniture_inventory[kind] = int(furniture_inventory[kind]) - 1
+	save_game()
+	close_commerce()
+	show_message("FURNITURE PLACED")
+
+
+func remove_nearby_furniture() -> void:
+	if not indoors or not purchased_homes.has(active_building):
+		return
+	var items: Array = placed_furniture.get(active_building, [])
+	var best: float = 3.0
+	var nearest: int = -1
+	for i in range(items.size()):
+		var item: Dictionary = items[i]
+		var point := InteriorScript.INTERIOR_ORIGIN + Vector3(float(item["x"]), 0.0, float(item["z"]))
+		var distance: float = hero.global_position.distance_to(point)
+		if distance < best:
+			best = distance
+			nearest = i
+	if nearest < 0:
+		show_message("近くに収納できる家具がありません")
+		return
+	var record: Dictionary = items[nearest]
+	var furniture_nodes: Array[Node] = interior.room_furniture.get_children()
+	if nearest < furniture_nodes.size():
+		furniture_nodes[nearest].queue_free()
+	var kind: String = String(record["kind"])
+	furniture_inventory[kind] = int(furniture_inventory.get(kind, 0)) + 1
+	items.remove_at(nearest)
+	placed_furniture[active_building] = items
+	save_game()
+	close_commerce()
+	show_message("FURNITURE STORED")
+
+
+func close_commerce() -> void:
+	if commerce_panel != null:
+		commerce_panel.visible = false
+	commerce_options.clear()
+	commerce_lot.clear()
+	fire_held = false
+	stick_value = Vector2.ZERO
+
+
+func load_housing_state(decoded: Dictionary) -> void:
+	var known_homes: Dictionary = {}
+	for lot in city.buildings:
+		if String(lot.get("business", "")) == "apartment":
+			known_homes[String(lot["id"])] = true
+	purchased_homes.clear()
+	var saved_homes = decoded.get("homes", {})
+	if saved_homes is Dictionary:
+		for key in saved_homes:
+			if known_homes.has(String(key)) and bool(saved_homes[key]):
+				purchased_homes[String(key)] = true
+	placed_furniture.clear()
+	var saved_furniture = decoded.get("furnishings", {})
+	if saved_furniture is Dictionary:
+		for key in saved_furniture:
+			if not purchased_homes.has(String(key)) or not (saved_furniture[key] is Array):
+				continue
+			var safe_items: Array[Dictionary] = []
+			for item in saved_furniture[key]:
+				if not (item is Dictionary) or safe_items.size() >= 32:
+					break
+				var kind: String = String(item.get("kind", ""))
+				if Furniture.find(kind).is_empty():
+					continue
+				var x: float = float(item.get("x", 0.0))
+				var z: float = float(item.get("z", 0.0))
+				if is_finite(x) and is_finite(z) and absf(x) < 8.0 and absf(z) < 8.0:
+					safe_items.append({"kind": kind, "x": x, "z": z, "rotation": float(item.get("rotation", 0.0))})
+			placed_furniture[String(key)] = safe_items
+	furniture_inventory.clear()
+	var saved_items = decoded.get("furniture_inventory", {})
+	if saved_items is Dictionary:
+		for kind in saved_items:
+			if not Furniture.find(String(kind)).is_empty():
+				furniture_inventory[String(kind)] = clampi(int(saved_items[kind]), 0, 99)
+	building_visits.clear()
+	var saved_visits = decoded.get("building_visits", {})
+	if saved_visits is Dictionary:
+		for key in saved_visits:
+			building_visits[String(key)] = clampi(int(saved_visits[key]), 0, 100000)
+	outfit_color = String(decoded.get("outfit_color", "#3b9da8"))
+
+
+func apply_outfit() -> void:
+	if hero == null or hero.body_visual == null or outfit_color.length() != 7 or not outfit_color.begins_with("#"):
+		return
+	var torso: Node3D = hero.body_visual.get_child(0) as Node3D
+	if torso == null or torso.get_child_count() == 0:
+		return
+	var surface: MeshInstance3D = torso.get_child(0) as MeshInstance3D
+	if surface != null:
+		surface.material_override = Shapes.material(Color(outfit_color))
+
+
 func layout_ui() -> void:
 	if ui == null:
 		return
@@ -1523,6 +1774,9 @@ func layout_ui() -> void:
 		settings_panel.position = (screen - settings_panel.size) * 0.5
 	shop_panel.size = Vector2(minf(screen.x - 30, 540), minf(screen.y - 55, 620))
 	shop_panel.position = (screen - shop_panel.size) * 0.5
+	if commerce_panel != null:
+		commerce_panel.size = Vector2(minf(screen.x - 22.0, 570.0), minf(screen.y - 26.0, 550.0))
+		commerce_panel.position = (screen - commerce_panel.size) * 0.5
 	if dialogue_panel != null:
 		dialogue_panel.size = Vector2(minf(screen.x - 22.0, 560.0), minf(screen.y - 32.0, 540.0))
 		dialogue_panel.position = (screen - dialogue_panel.size) * 0.5
