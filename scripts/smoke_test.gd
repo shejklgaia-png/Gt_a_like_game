@@ -248,6 +248,65 @@ func run_smoke() -> void:
 		push_error("Resident relationships were not saved")
 		quit(34)
 		return
+	# Re-enter with the same resident and explore all four authored deep paths.
+	game.begin_conversation(speaker)
+	if not game.dialogue_panel.visible or game.conversation_node != "start":
+		push_error("Deep dialogue did not reopen")
+		quit(39)
+		return
+	if game.dialogue_scroll == null:
+		push_error("Deep dialogue text is not scrollable on narrow screens")
+		quit(40)
+		return
+	var scenario_num: int = int(game.conversation_tree["scenario_id"])
+	var authored_topic: Dictionary = dialogue_library.catalog()[scenario_num / 10]
+	game.select_conversation_option(0)
+	game.select_conversation_option(3)
+	if game.conversation_node != "knowledge_hub":
+		push_error("Cannot navigate from small talk to specialist explanations")
+		quit(41)
+		return
+	var depth_fields: Array[String] = ["mechanism", "surprise", "field_story", "example"]
+	for depth_index in range(4):
+		game.select_conversation_option(depth_index)
+		if not game.dialogue_text.text.contains(String(authored_topic[depth_fields[depth_index]])):
+			push_error("Missing subject-specific expert knowledge for branch %d" % depth_index)
+			quit(42)
+			return
+		game.select_conversation_option(1)
+		if game.conversation_node != "knowledge_hub":
+			push_error("Could not return to specialist hub to ask a different question")
+			quit(43)
+			return
+	# A conversation must have no fixed number of spoken turns or topic switches.
+	# Each transition creates one bounded graph and advances a persistent cursor.
+	for transition in range(80):
+		var prior: int = int(game.conversation_tree["scenario_id"])
+		if game.conversation_node == "start":
+			game.select_conversation_option(0)
+			game.select_conversation_option(3)
+		game.select_conversation_option(0)
+		game.select_conversation_option(2)
+		if game.conversation_node != "start":
+			push_error("Long dialogue stopped at switch %d" % transition)
+			quit(44)
+			return
+		if int(game.conversation_tree["scenario_id"]) == prior:
+			push_error("Consecutive subjects repeated at switch %d" % transition)
+			quit(45)
+			return
+	var long_record: Dictionary = game.resident_relations[str(speaker.resident_id)]
+	if int(long_record.get("talks", -1)) != 2 or int(long_record.get("topics_seen", -1)) != 82:
+		push_error("Topic cursor or meeting count drifted during prolonged dialogue")
+		quit(46)
+		return
+	game.end_conversation()
+	var deep_saved: Dictionary = load("res://scripts/safe_save.gd").load_json(game.SAVE_PATH)
+	var deep_relation: Dictionary = deep_saved["residents"][str(speaker.resident_id)]
+	if int(deep_relation.get("topics_seen", -1)) != 82:
+		push_error("Long conversation topic cursor was not persisted")
+		quit(47)
+		return
 	game.toggle_settings()
 	if not game.settings_panel.visible or not paused:
 		push_error("Pause panel failed to suspend gameplay")
