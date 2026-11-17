@@ -171,6 +171,9 @@ func populate_interior(building_id: String, business: String, visit: int = 0) ->
 		person.position = positions[index]
 		person.mafia = hostile_visit and index == quantity - 1
 		person.indoor_mode = true
+		person.resident_id = 46 + posmod(building_id.hash(), 10000) * 4 + index
+		if person.mafia:
+			person.position = Vector3(0.2, 0.12, 3.2)
 		person.setup(false, person.position, random.randi())
 		add_child(person)
 		occupants.append(person)
@@ -219,3 +222,16 @@ func add_furniture(record: Dictionary) -> bool:
 	if not home_mode or not is_instance_valid(room_furniture):
 		return false
 	return Furniture.place(room_furniture, record) != null
+
+
+func closest_civilian(at: Vector3, max_distance: float = 2.9) -> PocketActor:
+	var best: float = max_distance
+	var found: PocketActor = null
+	for person in occupants:
+		if not is_instance_valid(person) or person.mafia or person.dead or person.panic_time > 0.0:
+			continue
+		var distance: float = Vector2(at.x - person.global_position.x, at.z - person.global_position.z).length()
+		if distance < best:
+			found = person
+			best = distance
+	return found
