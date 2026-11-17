@@ -61,23 +61,46 @@ This is a **playable prototype**, not a content-complete GTA clone. Cars use sim
 Saved data is stored by Godot under `user://pocket_district_save.json`. This file is not in the Git repository. Reinstalling or clearing app data can delete the save.
 
 
-## Neighborhood conversations — 2,000 authored variations (25 genres)
+## Resident conversations — no templated spoken transitions
 
-- The game now contains **200 individually written subjects** with their own concrete opening observation, detail, counterpoint and yes/no question, grouped into **25 genres of 8 subjects each**.
-- Every subject has **10 distinct dialogue approaches** (recent interest, memory, discovery, street conversation, unexpected angle, walk reflection, imagination, long discussion, differing tastes, and small discovery), giving **exactly 2,000 authored-context scenarios** before the additional player-choice branching.
-- Each resident traverses all 2,000 scenarios in a resident-specific deterministic permutation with **no repeats until that resident has seen all 2,000**. Resident identity, conversation count and friendship remain persistent across saves.
-- Four-level dialogue branches have topic-appropriate agreement, detail, respectful disagreement, yes/no follow-up, personal answer and endings. Each generated graph is acyclic, has only valid options, and reaches an ending. Variation does not rely on external generative AI.
-- The smoke test enumerates the entire 2,000-scenario permutation, validates each dialogue graph, verifies 25 genre categories, and exercises resident selection and saved relationship changes.
+**Hard dialogue rule:** every NPC-spoken sentence must be copied verbatim
+from the current subject's manually authored content. Reused greetings,
+agreements, apologies, filler connectors, stock endings, and transition
+sentences are forbidden. No generative paraphrasing is done at runtime.
+The runtime validator verifies every generated NPC line against the exact
+subject record; the smoke test exercises all configurations.
 
-### Talking with residents
+There are **200 manually written subjects across 25 genres**, each with
+a subject-specific opening, detail, counterpoint, question, and **four
+distinct specialist paragraphs** (mechanism, surprise, plausible fictional
+workplace story, and a concrete example). That is **800 additional unique
+expert paragraphs** alongside the original subject content. Each subject
+has **10 opening configurations** made solely by selecting and arranging
+its authored paragraphs. Together, these form 2,000 structured opening
+configurations — they are not 2,000 independently written stories.
 
-- Walk near a civilian to see **ACTION: 話す**. Press **ACTION** (mobile) or **E/F** (desktop) to talk. Building entrances take priority when you are right at the door.
-- Pick one of the displayed replies using the touch buttons or desktop keys **1–4**. Tap **会話を終える** (or press **E/F/Esc**) to leave.
-- Each of the 46 civilian slots gets a persistent Japanese name, deterministic personality seed, preferred genre, conversation visit count and friendship/affinity score.
-- The first interaction introduces the resident; later chats vary the scenario, branch order and number of initial branches. Responses are tied to the current topic and only point to valid successor nodes; there is no free-form text generation or unpredictable LLM dependency.
-- Civilians pause walking and turn toward the player during a conversation. Attacks, panic, wanted status, moving out of range and player injury/death end the interaction safely.
-- Relationships are saved as the optional \`residents\` object in \`user://pocket_district_save.json\`; older saves continue to load.
-- The headless smoke test validates every civilian's conversation graph and checks an actual dialogue path plus relationship persistence.
+### Playing conversations
+
+Walk up to a resident and press ACTION (or desktop E/F) to start.
+The NPC speaks only current-topic prose: no shared dialogue preambles.
+The four on-screen labels (**仕組み・原理**, **意外な事実**,
+**現場ならではの話**, **身近な観察・体験**) are
+player navigation controls, **not NPC dialogue**. Previously read branches
+vanish for the rest of the current subject. Tap **別の話題** at any point
+to begin the next authored subject immediately, without an in-world
+transition line. Tap **会話を終える** (or press E/F/Esc) to finish.
+
+A conversation may continue through arbitrarily many subjects; only one
+five-node dialogue graph is kept in memory at a time. Longer prose scrolls
+inside a fixed-height panel. The 46 residents keep their individual
+conversation meeting counts, friendship levels, and separate \`topics_seen\`
+cursor, saved periodically and at the end of an encounter. Old save files
+remain readable. Each resident's deterministic 2,000-opening sequence
+does not repeat until all opening configurations have been visited.
+
+Specialist anecdotes are **fictional game content**, not attributed to
+real professionals. Godot 4.4.1 and 4.7.2 CI test all 2,000 opening
+configurations, source-only spoken lines, and 80 topic transitions.
 
 ## Roadmap
 
@@ -145,36 +168,6 @@ This remains a prototype. Physical Android device testing is needed in addition
 to CI headless tests.
 
 
-
-### Rich specialist conversations — no dialogue-length cap
-
-All **200 existing subjects across 25 genres** now have four original,
-subject-specific knowledge passages in addition to their original introductory
-texts: (1) a beginner-friendly explanation of how it works, (2) an unexpected
-fact, (3) a fictional but plausible professional "fieldwork / workplace
-relatability" anecdote, and (4) a safe everyday observation or example.
-That adds **800 individually authored depth passages**; the prior 10 opening
-approaches still yield 2,000 distinct subject/approach combinations. These
-professional anecdotes are **fictional game dialogue**, not quotations from
-real people or a claim that every resident is a credentialed specialist.
-
-The conversation tree now has an explorable **Knowledge Hub**. From ordinary
-small talk, players can ask for the mechanism, surprising fact, professional
-experience or beginner example, ask a further question, return to the hub,
-or advance to another subject. **A conversation has no fixed number of replies**:
-topic-to-topic continuation generates one compact tree at a time and can repeat
-indefinitely (the finite 2,000 opening combinations cycle after their full
-sequence). On mobile, lengthy explanations scroll within a dialogue panel while
-the response buttons stay accessible.
-
-Each citizen has one consistent, randomized specialist field and job-like role.
-Conversation count and the new separately persisted \`topics_seen\` cursor
-remain specific to that citizen; older saves without the new field work through
-fallback migration. Relationships are saved on autosave and on closing dialogue
-rather than rewriting the save file for every sentence. The automated
-conversation regression exhaustively checks all 2,000 possible trees, explores
-all four depth types and performs 80 consecutive topic changes without ending
-a conversation.
 
 ## Android editor: game subprocess stops without a script error
 
