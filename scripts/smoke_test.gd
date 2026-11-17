@@ -169,143 +169,148 @@ func run_smoke() -> void:
 		push_error("Versioned mission save/load is incorrect")
 		quit(24)
 		return
-	# All 2,000 scenarios are unique, reachable, finite and internally coherent.
+	# The 2,000 configurations contain no stock dialogue joins: spoken text
+	# must be made solely from a topic's individually authored paragraphs.
 	var dialogue_library = load("res://scripts/resident_dialogue.gd")
 	if not dialogue_library.is_valid_catalog() or dialogue_library.CONVERSATION_COUNT != 2000:
-		push_error("Conversation catalog does not contain 200 unique topics across 25 genres and 10 approaches")
+		push_error("The 200 subject catalog is incomplete")
 		quit(35)
 		return
-	var all_scenarios: Dictionary = {}
-	var all_genres: Dictionary = {}
+	var seen_scenarios: Dictionary = {}
+	var genre_counts: Dictionary = {}
 	var first_profile: Dictionary = dialogue_library.make_profile(0)
-	for visit in range(dialogue_library.CONVERSATION_COUNT):
-		var scenario: Dictionary = dialogue_library.make_tree(first_profile, visit)
-		if not dialogue_library.is_valid_tree(scenario):
-			push_error("Invalid dialogue graph for visit %d" % visit)
+	for visit in range(2000):
+		var graph: Dictionary = dialogue_library.make_tree(first_profile, visit)
+		if not dialogue_library.is_valid_tree(graph):
+			push_error("Dialogue uses a mismatched, generic or invalid line at variant %d" % visit)
 			quit(36)
 			return
-		var scenario_key := int(scenario.get("scenario_id", -1))
-		if scenario_key < 0 or scenario_key >= 2000 or all_scenarios.has(scenario_key):
-			push_error("Duplicated or missing conversation scenario at visit %d" % visit)
+		var scenario: int = int(graph.get("scenario_id", -1))
+		if seen_scenarios.has(scenario) or scenario < 0 or scenario >= 2000:
+			push_error("Conversation permutation repeated prematurely at %d" % visit)
 			quit(37)
 			return
-		all_scenarios[scenario_key] = true
-		all_genres[String(scenario.get("genre", ""))] = true
-	if all_scenarios.size() != 2000 or all_genres.size() != 25:
-		push_error("The conversation permutation does not cover all 2,000 scenarios and 25 genres")
+		seen_scenarios[scenario] = true
+		genre_counts[String(graph.get("genre", ""))] = true
+	if seen_scenarios.size() != 2000 or genre_counts.size() != 25:
+		push_error("Conversation catalog does not cover all 2,000 openings / 25 genres")
 		quit(38)
 		return
-	# Every resident has a stable identity and a fully connected, finite dialogue tree.
 	for resident_index in range(town.people.size()):
 		var civilian: PocketActor = town.people[resident_index]
 		if civilian.resident_id != resident_index:
-			push_error("Resident identity is not stable for slot %d" % resident_index)
+			push_error("Resident identity did not match citizen slot %d" % resident_index)
 			quit(27)
 			return
-		var resident_profile: Dictionary = dialogue_library.make_profile(resident_index)
+		var profile: Dictionary = dialogue_library.make_profile(resident_index)
 		for talk_index in range(3):
-			var branches: Dictionary = dialogue_library.make_tree(resident_profile, talk_index)
-			if not dialogue_library.is_valid_tree(branches):
-				push_error("Broken dialogue branches for resident %d, visit %d" % [resident_index, talk_index])
+			if not dialogue_library.is_valid_tree(dialogue_library.make_tree(profile, talk_index)):
+				push_error("Invalid topic for resident %d visit %d" % [resident_index, talk_index])
 				quit(28)
 				return
-	# A complete conversation must reach its ending and persist only that resident's affinity.
+	# Explore every unique piece of specialist knowledge in a single encounter.
 	var speaker: PocketActor = town.people[2]
 	game.resident_relations.erase(str(speaker.resident_id))
-	game.wanted = 0 # A previous combat regression test deliberately raised the wanted level.
+	game.wanted = 0
 	hero.global_position = speaker.global_position + Vector3(0, 0, 1.0)
 	game.begin_conversation(speaker)
 	if not speaker.chatting or not game.dialogue_panel.visible or game.conversation_node != "start":
-		push_error("Conversation panel failed to open")
+		push_error("Dialogue did not start")
 		quit(29)
 		return
-	var opening_options: Array = game.conversation_tree["nodes"]["start"]["choices"]
-	var first_option: Dictionary = opening_options[0]
+	if game.dialogue_scroll == null or game.dialogue_next == null:
+		push_error("Dialogue scroll or next-topic control is missing")
+		quit(39)
+		return
+	var initial_graph: Dictionary = game.conversation_tree
+	var authorial_text: String = String(initial_graph["nodes"]["start"]["text"])
+	if game.dialogue_text.text != authorial_text:
+		push_error("Text was rewritten with a stock connector or non-authored message")
+		quit(40)
+		return
+	var first_count: int = game.conversation_displayed_options.size()
+	if first_count < 2 or first_count > 4:
+		push_error("Opening does not expose valid nonrepeating choices")
+		quit(41)
+		return
+	var expected_first: String = String(game.conversation_displayed_options[0]["next"])
 	game.select_conversation_option(0)
-	if game.conversation_node != String(first_option["next"]):
-		push_error("Dialogue did not enter its randomly selected branch")
+	if game.conversation_node != expected_first:
+		push_error("Dialogue did not follow the chosen topic-specific path")
 		quit(30)
 		return
-	game.select_conversation_option(0)
-	game.select_conversation_option(0)
-	game.select_conversation_option(0)
-	if game.conversation_node != "friendly_bye":
-		push_error("Dialogue could not reach its expected ending")
-		quit(31)
+	var knowledge: Dictionary = dialogue_library.catalog()[int(initial_graph["scenario_id"]) / 10]
+	if game.dialogue_text.text != String(knowledge[expected_first]):
+		push_error("Specialist passage is not the authored subject text")
+		quit(42)
 		return
-	var relationship: Dictionary = game.resident_relations.get(str(speaker.resident_id), {})
-	if int(relationship.get("talks", 0)) != 1 or int(relationship.get("affinity", 0)) != 4 + int(first_option["affinity"]):
-		push_error("Resident relationship did not follow selected answers")
-		quit(32)
+	# Consume all remaining unique branches, never repeating a paragraph.
+	var chosen: Dictionary = {expected_first: true}
+	for branch_index in range(4):
+		if game.conversation_displayed_options.is_empty():
+			break
+		var next_branch: String = String(game.conversation_displayed_options[0]["next"])
+		if chosen.has(next_branch):
+			push_error("Repeated an already-spoken specialist paragraph")
+			quit(43)
+			return
+		game.select_conversation_option(0)
+		if game.dialogue_text.text != String(knowledge[next_branch]):
+			push_error("Branch contained a generic connecting sentence")
+			quit(44)
+			return
+		chosen[next_branch] = true
+	if not game.conversation_displayed_options.is_empty():
+		push_error("Visited specialist topics are still offered as new content")
+		quit(45)
+		return
+	var opened: Dictionary = {int(game.conversation_tree["scenario_id"]): true}
+	# No turn limit, no filler on the transitions, bounded per-topic memory.
+	for transition in range(80):
+		game.continue_conversation()
+		if game.conversation_node != "start":
+			push_error("Conversation stopped during subject transition %d" % transition)
+			quit(46)
+			return
+		var scenario_num: int = int(game.conversation_tree["scenario_id"])
+		if opened.has(scenario_num):
+			push_error("Repeated a scenario before exhausting the library")
+			quit(47)
+			return
+		opened[scenario_num] = true
+		if not dialogue_library.is_valid_tree(game.conversation_tree):
+			push_error("Unattributed text was used while switching topics")
+			quit(48)
+			return
+		if not game.conversation_displayed_options.is_empty():
+			var target: String = String(game.conversation_displayed_options[0]["next"])
+			game.select_conversation_option(0)
+			var current_topic: Dictionary = dialogue_library.catalog()[scenario_num / 10]
+			if game.dialogue_text.text != String(current_topic[target]):
+				push_error("Dialogue contained a template filler after switching topics")
+				quit(49)
+				return
+	var relationship: Dictionary = game.resident_relations[str(speaker.resident_id)]
+	if int(relationship.get("talks", -1)) != 1 or int(relationship.get("topics_seen", -1)) != 81:
+		push_error("Long conversation changed the resident's meeting count or topic cursor")
+		quit(50)
 		return
 	game.end_conversation()
 	if speaker.chatting or game.dialogue_panel.visible:
-		push_error("Conversation failed to release civilian movement and UI")
+		push_error("Conversation failed to close correctly")
 		quit(33)
 		return
-	var saved_chat: Dictionary = load("res://scripts/safe_save.gd").load_json(game.SAVE_PATH)
-	if not saved_chat.get("residents", {}).has(str(speaker.resident_id)):
-		push_error("Resident relationships were not saved")
-		quit(34)
-		return
-	# Re-enter with the same resident and explore all four authored deep paths.
 	game.begin_conversation(speaker)
 	if not game.dialogue_panel.visible or game.conversation_node != "start":
-		push_error("Deep dialogue did not reopen")
-		quit(39)
-		return
-	if game.dialogue_scroll == null:
-		push_error("Deep dialogue text is not scrollable on narrow screens")
-		quit(40)
-		return
-	var scenario_num: int = int(game.conversation_tree["scenario_id"])
-	var authored_topic: Dictionary = dialogue_library.catalog()[floori(float(scenario_num) / 10.0)]
-	game.select_conversation_option(0)
-	game.select_conversation_option(3)
-	if game.conversation_node != "knowledge_hub":
-		push_error("Cannot navigate from small talk to specialist explanations")
-		quit(41)
-		return
-	var depth_fields: Array[String] = ["mechanism", "surprise", "field_story", "example"]
-	for depth_index in range(4):
-		game.select_conversation_option(depth_index)
-		if not game.dialogue_text.text.contains(String(authored_topic[depth_fields[depth_index]])):
-			push_error("Missing subject-specific expert knowledge for branch %d" % depth_index)
-			quit(42)
-			return
-		game.select_conversation_option(1)
-		if game.conversation_node != "knowledge_hub":
-			push_error("Could not return to specialist hub to ask a different question")
-			quit(43)
-			return
-	# A conversation must have no fixed number of spoken turns or topic switches.
-	# Each transition creates one bounded graph and advances a persistent cursor.
-	for transition in range(80):
-		var prior: int = int(game.conversation_tree["scenario_id"])
-		if game.conversation_node == "start":
-			game.select_conversation_option(0)
-			game.select_conversation_option(3)
-		game.select_conversation_option(0)
-		game.select_conversation_option(2)
-		if game.conversation_node != "start":
-			push_error("Long dialogue stopped at switch %d" % transition)
-			quit(44)
-			return
-		if int(game.conversation_tree["scenario_id"]) == prior:
-			push_error("Consecutive subjects repeated at switch %d" % transition)
-			quit(45)
-			return
-	var long_record: Dictionary = game.resident_relations[str(speaker.resident_id)]
-	if int(long_record.get("talks", -1)) != 2 or int(long_record.get("topics_seen", -1)) != 82:
-		push_error("Topic cursor or meeting count drifted during prolonged dialogue")
-		quit(46)
+		push_error("Could not talk to the same resident again")
+		quit(51)
 		return
 	game.end_conversation()
-	var deep_saved: Dictionary = load("res://scripts/safe_save.gd").load_json(game.SAVE_PATH)
-	var deep_relation: Dictionary = deep_saved["residents"][str(speaker.resident_id)]
-	if int(deep_relation.get("topics_seen", -1)) != 82:
-		push_error("Long conversation topic cursor was not persisted")
-		quit(47)
+	var saved_chat: Dictionary = load("res://scripts/safe_save.gd").load_json(game.save_destination())
+	var saved_relation: Dictionary = saved_chat.get("residents", {}).get(str(speaker.resident_id), {})
+	if int(saved_relation.get("topics_seen", -1)) != 82 or int(saved_relation.get("talks", -1)) != 2:
+		push_error("Long authored conversation was not saved")
+		quit(34)
 		return
 	game.toggle_settings()
 	if not game.settings_panel.visible or not paused:
