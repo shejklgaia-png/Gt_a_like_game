@@ -888,7 +888,9 @@ func load_game() -> void:
 	var coords = decoded.get("player_position", [])
 	if coords is Array and coords.size() == 3:
 		var p := Vector3(float(coords[0]), float(coords[1]), float(coords[2]))
-		if absf(p.x) < 120 and absf(p.z) < 120 and p.y > -2.0 and p.y < 10.0:
+		# New perimeter roads (x/z ~128) and the elevated freeway (z ~137, y ~7)
+		# are traversable; the original central-grid bounds discarded valid saves.
+		if absf(p.x) < 175.0 and absf(p.z) < 175.0 and p.y > -2.0 and p.y < 15.0:
 			hero.position = p
 
 
@@ -1058,7 +1060,17 @@ func update_hud() -> void:
 
 
 func waypoint_arrow(delta_to_goal: Vector3) -> String:
-	var angle := atan2(delta_to_goal.z, delta_to_goal.x)
+	# Navigation arrows follow the current screen orientation rather than
+	# absolute world directions, including during a temporary camera orbit.
+	var ground := Vector2(delta_to_goal.x, delta_to_goal.z)
+	if ground.length_squared() < 0.04:
+		return "•"
+	var camera_basis := camera.global_transform.basis
+	var screen_right := Vector2(camera_basis.x.x, camera_basis.x.z).normalized()
+	var screen_up := Vector2(camera_basis.y.x, camera_basis.y.z).normalized()
+	var screen_x := ground.dot(screen_right)
+	var screen_down := -ground.dot(screen_up)
+	var angle := atan2(screen_down, screen_x)
 	var index: int = wrapi(int(round(angle / (PI / 4.0))), 0, 8)
 	var symbols := ["→", "↘", "↓", "↙", "←", "↖", "↑", "↗"]
 	return symbols[index]
