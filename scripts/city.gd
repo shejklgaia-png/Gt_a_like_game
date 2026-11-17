@@ -172,7 +172,10 @@ func add_street_props() -> void:
 	var lights := Node3D.new()
 	lights.name = "StreetLamps"
 	add_child(lights)
-	for building in buildings:
+	for building_index in range(buildings.size()):
+		if OS.get_name() == "Android" and building_index % 2 != 0:
+			continue
+		var building: Dictionary = buildings[building_index]
 		var center: Vector3 = building["position"]
 		var width: float = float(building["width"])
 		var depth: float = float(building["depth"])
