@@ -43,8 +43,8 @@ func exercise_mobile_startup() -> void:
 	# Do not force-delete our own diagnostic file; closing the scene should mark
 	# it closed through _exit_tree(), which is also part of our regression checks.
 	root.remove_child(game)
+	saved = diagnostics.read_snapshot()
 	game.free()
-	saved = diagnostics.read_snapshot() if is_instance_valid(diagnostics) else SessionDiagnostics.new().read_snapshot()
 	if String(saved.get("state", "")) != "closed":
 		failed("Gracefully leaving game did not close the diagnostic session", 107)
 		return
