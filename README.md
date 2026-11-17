@@ -106,6 +106,54 @@ configurations, source-only spoken lines, and 80 topic transitions.
 
 Streaming city chunks, navigation and traffic signals; shoot animations, gun recoil and muzzle effects; shop economy; interior object interactions; missions with waypoint arrows; touch sensitivity calibration; Android device profiling.
 
+
+## District and housing expansion
+
+The fixed 36-block city is now zoned into a **shopping/entertainment district,
+office district, nightlife/red-light district (non-explicit storefronts),
+market district, residential neighborhoods and downtown core**. Street-facing
+buildings have functional businesses and neighborhood-specific signs/windows
+without adding persistent expensive light sources.
+
+**Roads:** selected center routes are broader boulevards; a driveable outer
+ring has curved corners, selected buildings expose service alleys that connect
+both adjacent streets, and a physically collidable **elevated expressway** has
+east/west entry and exit ramps. Four NPC traffic cars use the curved outer
+ring or expressway; other traffic keeps the existing synchronized junction
+signals. The minimap marks curved streets, expressway, service alleys, shops,
+nightlife and owned residences. The city floor and navigation bounds are
+expanded to include the extra streets.
+
+**Commerce:** walk to the entrance for supermarkets, convenience stores,
+clothing boutiques, furniture stores, restaurants or market stalls. Food items
+restore HP, clothing changes the player's jacket tint, and the furniture
+store sells eight physical furniture types. Gun-shop behavior is preserved.
+
+**Homes:** several separately addressable apartments are listed for sale.
+Buying one deducts cash and permanently unlocks an editable private interior
+for that address. Walk into the purchased room and press ACTION away from the
+exit to open the furniture menu. Place purchased sofas, beds, tables, chairs,
+bookcases, lamps, plants and wardrobes in front of the player's facing
+direction. Positions are snapped to 0.5 m; walls, other furniture and exit
+corridors are guarded. Select "近くの家具をしまう" near a placed item to
+recover it to inventory. Ownership, furnishings, furniture inventory and
+outfit color are included in the existing versioned save (older saves load
+with empty homes).
+
+**Indoors:** non-owned interiors spawn **one to four civilians**, deterministically
+varied by building and visit count. Civilians can be spoken to using the
+existing topic-specific branching dialogue system. Most indoor visits are
+non-hostile; an occasional Mafia NPC spawns (more often in nightlife venues),
+wears a distinctive color, pursues the player and can initiate close-range
+melee attacks. NPCs exist only in the current room and are suspended when
+returning outside; purchased private homes do not spawn intruders.
+The ordinary resident population and its relationship memories remain intact.
+
+Both supported Godot engine versions run an automated district integration test
+covering architecture, collision ramps, vehicle routes, apartment purchases,
+furniture placement/reclaim/save and an occasional Mafia encounter. Android
+runtime performance remains device-dependent.
+
 ## Android APK (automated)
 
 Push to `main` to start the **Build Android APK** GitHub Actions workflow. It runs an engine smoke test, creates an ARM64 debug-signed `PocketDistrict-debug.apk`, and attaches it to the run as an artifact. Successful builds from `main` also publish the APK in the [Pocket District Preview release](https://github.com/shejklgaia-png/Gt_a_like_game/releases/tag/pocket-district-preview).
