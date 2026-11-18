@@ -53,3 +53,11 @@ jobs:
             echo "GDScript error detected during CITY phone test"
             exit 1
           fi
+      - name: Validate building-aware GPS paths, next-turn guidance and route cache
+        run: |
+          set -o pipefail
+          godot --headless --path . --script res://scripts/city_route_test.gd 2>&1 | tee /tmp/pocket_city_route.log
+          if grep -E 'SCRIPT ERROR:|Parse Error:' /tmp/pocket_city_route.log; then
+            echo "GDScript error detected during CITY route test"
+            exit 1
+          fi
