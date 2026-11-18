@@ -17,6 +17,7 @@ const Furniture = preload("res://scripts/furniture_catalog.gd")
 const StreetFinds = preload("res://scripts/street_finds.gd")
 const GarageVehicleScript = preload("res://scripts/vehicle.gd")
 const NeighborhoodJobsScript = preload("res://scripts/neighborhood_jobs.gd")
+const ConversationActivitiesScript = preload("res://scripts/conversation_activities.gd")
 const CityPhoneScript = preload("res://scripts/city_phone.gd")
 const CityRouteScript = preload("res://scripts/city_route.gd")
 const SidewalkRouteScript = preload("res://scripts/sidewalk_route.gd")
@@ -71,6 +72,8 @@ var street_finds: PocketStreetFinds
 var street_find_records: Dictionary = {}
 var neighborhood_jobs: PocketNeighborhoodJobs
 var neighborhood_job_state: Dictionary = {}
+var conversation_activities: PocketConversationActivities
+var conversation_activity_state: Dictionary = {}
 var deliveries: int = 0
 var autosave_clock: float = 0.0
 var camera_yaw: float = 0.0
@@ -145,6 +148,9 @@ var dialogue_speaker: Label
 var dialogue_text: Label
 var dialogue_scroll: ScrollContainer
 var dialogue_options: Array[Button] = []
+var dialogue_activity_status: Label
+var dialogue_activity_buttons: Array[Button] = []
+var dialogue_activity_offers: Array[Dictionary] = []
 var dialogue_exit: Button
 var dialogue_next: Button
 var conversation_seen: Dictionary = {}
@@ -198,6 +204,10 @@ func _ready() -> void:
 	neighborhood_jobs.name = "NeighborhoodJobs"
 	city.add_child(neighborhood_jobs)
 	neighborhood_jobs.setup(city.buildings, neighborhood_job_state)
+	conversation_activities = ConversationActivitiesScript.new()
+	conversation_activities.name = "ConversationActivities"
+	city.add_child(conversation_activities)
+	conversation_activities.setup(city.buildings, city.people, conversation_activity_state)
 	apply_outfit()
 	if mobile_optimization_enabled:
 		city.update_mobile_activity(hero.global_position)
@@ -681,6 +691,13 @@ func interaction() -> void:
 	if car_driven != null:
 		exit_car()
 		return
+	# A conversation can turn into a tangible city activity. At the chosen
+	# site ACTION advances its own route before normal commerce/parcel checks.
+	if is_instance_valid(conversation_activities):
+		var activity_result: Dictionary = conversation_activities.interact_at(hero.global_position)
+		if not activity_result.is_empty():
+			process_activity_result(activity_result)
+			return
 	# Separate neighborhood jobs provide optional non-violent exploration.
 	if is_instance_valid(neighborhood_jobs):
 		var side_job_result: Dictionary = neighborhood_jobs.try_interact(hero.global_position)
@@ -955,6 +972,29 @@ func advance_delivery() -> void:
 	save_game()
 
 
+func process_activity_result(result: Dictionary) -> void:
+	if result.is_empty():
+		return
+	var reward: int = maxi(0, int(result.get("reward", 0)))
+	if reward > 0:
+		cash += reward
+		total_earnings += reward
+		var resident_key := str(int(result.get("giver", -1)))
+		var record: Dictionary = resident_relations.get(resident_key, {"talks": 0, "affinity": 0, "topics_seen": 0})
+		record["affinity"] = clampi(int(record.get("affinity", 0)) + 8, 0, 100)
+		resident_relations[resident_key] = record
+		sound.play_ui("cash")
+	else:
+		sound.play_ui("ui")
+	show_message(String(result.get("message", "")))
+	if String(result.get("event", "")) == "finish" and navigation_kind == "activity":
+		clear_city_waypoint()
+		# Keep the completion notification visible after removing the GPS.
+		show_message(String(result.get("message", "")))
+	else:
+		save_game()
+
+
 func current_travel_position() -> Vector3:
 	return car_driven.global_position if is_instance_valid(car_driven) else hero.global_position
 
@@ -968,7 +1008,7 @@ func active_city_route() -> RefCounted:
 
 func set_city_waypoint(kind: String, key: String, title: String, point: Vector3) -> void:
 	# The phone sets a route, not fast travel or remote shopping.
-	if not kind in ["delivery", "side_job", "job_board", "lot", "owned_car", "cache", "resident"]:
+	if not kind in ["delivery", "side_job", "job_board", "lot", "owned_car", "cache", "resident", "activity"]:
 		return
 	navigation_kind = kind
 	navigation_id = key
@@ -998,6 +1038,9 @@ func city_waypoint_point() -> Vector3:
 	match navigation_kind:
 		"delivery":
 			return mission_point
+		"activity":
+			if is_instance_valid(conversation_activities) and conversation_activities.active:
+				return conversation_activities.objective_position()
 		"side_job":
 			if is_instance_valid(neighborhood_jobs):
 				return neighborhood_jobs.objective_position()
@@ -1062,7 +1105,7 @@ func load_game() -> void:
 			garage_saved_position = saved_point
 	garage_saved_yaw = float(decoded.get("garage_yaw", PI * 0.5))
 	navigation_kind = String(decoded.get("nav_kind", ""))
-	if not navigation_kind in ["delivery", "side_job", "job_board", "lot", "owned_car", "cache", "resident"]:
+	if not navigation_kind in ["delivery", "side_job", "job_board", "lot", "owned_car", "cache", "resident", "activity"]:
 		navigation_kind = ""
 	navigation_id = String(decoded.get("nav_id", "")).substr(0, 80)
 	navigation_label = String(decoded.get("nav_label", "")).substr(0, 60) if navigation_kind != "" else ""
@@ -1076,6 +1119,10 @@ func load_game() -> void:
 		var nav := Vector3(float(saved_nav[0]), float(saved_nav[1]), float(saved_nav[2]))
 		if nav.is_finite() and absf(nav.x) < 180.0 and absf(nav.z) < 180.0 and nav.y > -2.0 and nav.y < 15.0:
 			navigation_position = nav
+	var saved_activity = decoded.get("conversation_activities", {})
+	conversation_activity_state = saved_activity.duplicate(true) if saved_activity is Dictionary else {}
+	if is_instance_valid(conversation_activities):
+		conversation_activities.restore(conversation_activity_state)
 	var saved_jobs = decoded.get("neighborhood_jobs", {})
 	neighborhood_job_state = saved_jobs.duplicate(true) if saved_jobs is Dictionary else {}
 	if is_instance_valid(neighborhood_jobs):
@@ -1152,6 +1199,7 @@ func save_game() -> void:
 		"garage_yaw": garage_car.rotation.y if is_instance_valid(garage_car) else garage_saved_yaw,
 		"street_finds": street_find_records,
 		"neighborhood_jobs": neighborhood_jobs.save_state() if is_instance_valid(neighborhood_jobs) else neighborhood_job_state,
+		"conversation_activities": conversation_activities.save_state() if is_instance_valid(conversation_activities) else conversation_activity_state,
 		"interiors": layouts,
 		"homes": purchased_homes,
 		"furnishings": placed_furniture,
@@ -1310,6 +1358,9 @@ func update_hud() -> void:
 		caption = "FIRST JOB: FOLLOW GOLD PARCEL • PRESS ACTION"
 	elif deliveries == 0 and mission_stage == 1:
 		caption = "FIRST JOB: FOLLOW ARROW • DELIVER BEFORE TIME RUNS OUT"
+	if is_instance_valid(conversation_activities) and conversation_activities.active:
+		var activity_delta: Vector3 = conversation_activities.objective_position() - current_position
+		caption = "住民の依頼：%s  %s%dm" % [conversation_activities.objective_description(), waypoint_arrow(activity_delta), roundi(Vector2(activity_delta.x, activity_delta.z).length())]
 	if is_instance_valid(neighborhood_jobs) and neighborhood_jobs.active:
 		var job_delta: Vector3 = neighborhood_jobs.objective_position() - current_position
 		caption = "SIDE JOB %s  %s %dm" % [neighborhood_jobs.describe_progress(), waypoint_arrow(job_delta), roundi(Vector2(job_delta.x, job_delta.z).length())]
