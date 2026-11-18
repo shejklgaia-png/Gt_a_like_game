@@ -16,6 +16,7 @@ const Stores = preload("res://scripts/store_catalog.gd")
 const Furniture = preload("res://scripts/furniture_catalog.gd")
 const StreetFinds = preload("res://scripts/street_finds.gd")
 const GarageVehicleScript = preload("res://scripts/vehicle.gd")
+const NeighborhoodJobsScript = preload("res://scripts/neighborhood_jobs.gd")
 
 var WEAPONS: Array[Dictionary] = GameData.weapons()
 const SAVE_PATH := "user://pocket_district_save.json"
@@ -59,6 +60,8 @@ var mission_marker: Node3D
 var mission_marker_label: Label3D
 var street_finds: PocketStreetFinds
 var street_find_records: Dictionary = {}
+var neighborhood_jobs: PocketNeighborhoodJobs
+var neighborhood_job_state: Dictionary = {}
 var deliveries: int = 0
 var autosave_clock: float = 0.0
 var camera_yaw: float = 0.0
@@ -175,6 +178,10 @@ func _ready() -> void:
 	if garage_owned:
 		spawn_garage_car()
 	street_finds.setup(city.buildings, street_find_records)
+	neighborhood_jobs = NeighborhoodJobsScript.new()
+	neighborhood_jobs.name = "NeighborhoodJobs"
+	city.add_child(neighborhood_jobs)
+	neighborhood_jobs.setup(city.buildings, neighborhood_job_state)
 	apply_outfit()
 	if mobile_optimization_enabled:
 		city.update_mobile_activity(hero.global_position)
@@ -653,6 +660,20 @@ func interaction() -> void:
 	if car_driven != null:
 		exit_car()
 		return
+	# Separate neighborhood jobs provide optional non-violent exploration.
+	if is_instance_valid(neighborhood_jobs):
+		var side_job_result: Dictionary = neighborhood_jobs.try_interact(hero.global_position)
+		if not side_job_result.is_empty():
+			var side_reward: int = int(side_job_result.get("reward", 0))
+			if side_reward > 0:
+				cash += side_reward
+				total_earnings += side_reward
+				sound.play_ui("cash")
+			else:
+				sound.play_ui("ui")
+			show_message(String(side_job_result["message"]))
+			save_game()
+			return
 	# Optional city discoveries reward exploring back streets.
 	var nearby_cache: int = street_finds.nearest(hero.global_position)
 	if nearby_cache >= 0:
@@ -941,6 +962,8 @@ func load_game() -> void:
 		if absf(saved_point.x) < 170.0 and absf(saved_point.z) < 170.0 and saved_point.y > -2.0 and saved_point.y < 14.0:
 			garage_saved_position = saved_point
 	garage_saved_yaw = float(decoded.get("garage_yaw", PI * 0.5))
+	var saved_jobs = decoded.get("neighborhood_jobs", {})
+	neighborhood_job_state = saved_jobs.duplicate(true) if saved_jobs is Dictionary else {}
 	var saved_street_finds = decoded.get("street_finds", {})
 	street_find_records = saved_street_finds.duplicate(true) if saved_street_finds is Dictionary else {}
 	if is_instance_valid(street_finds):
@@ -1008,6 +1031,7 @@ func save_game() -> void:
 		"garage_position": [garage_car.global_position.x, garage_car.global_position.y, garage_car.global_position.z] if is_instance_valid(garage_car) else [],
 		"garage_yaw": garage_car.rotation.y if is_instance_valid(garage_car) else garage_saved_yaw,
 		"street_finds": street_find_records,
+		"neighborhood_jobs": neighborhood_jobs.save_state() if is_instance_valid(neighborhood_jobs) else neighborhood_job_state,
 		"interiors": layouts,
 		"homes": purchased_homes,
 		"furnishings": placed_furniture,
@@ -1137,6 +1161,9 @@ func update_hud() -> void:
 		caption = "FIRST JOB: FOLLOW GOLD PARCEL • PRESS ACTION"
 	elif deliveries == 0 and mission_stage == 1:
 		caption = "FIRST JOB: FOLLOW ARROW • DELIVER BEFORE TIME RUNS OUT"
+	if is_instance_valid(neighborhood_jobs) and neighborhood_jobs.active:
+		var job_delta: Vector3 = neighborhood_jobs.objective_position() - current_position
+		caption = "SIDE JOB %s  %s %dm" % [neighborhood_jobs.describe_progress(), waypoint_arrow(job_delta), roundi(Vector2(job_delta.x, job_delta.z).length())]
 	if hero.dead:
 		caption = "WASTED  •  RESPAWNING"
 	elif carjack_busy:
@@ -1154,6 +1181,8 @@ func update_hud() -> void:
 			caption = "RETURN TO THE EXIT MARKER"
 	elif car_driven != null:
 		caption = "ACTION: EXIT CAR  •  STICK TO DRIVE"
+	elif is_instance_valid(neighborhood_jobs) and neighborhood_jobs.close_to_job(hero.global_position):
+		caption = "ACTION: " + neighborhood_jobs.action_hint()
 	elif street_finds.nearest(hero.global_position) >= 0:
 		caption = "ACTION: SEARCH STREET CACHE"
 	elif hero.global_position.distance_to(mission_point) <= 2.8:
