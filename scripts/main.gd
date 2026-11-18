@@ -15,6 +15,8 @@ const SessionDiagnostics = preload("res://scripts/session_diagnostics.gd")
 const Stores = preload("res://scripts/store_catalog.gd")
 const Furniture = preload("res://scripts/furniture_catalog.gd")
 const StreetFinds = preload("res://scripts/street_finds.gd")
+const GarageVehicleScript = preload("res://scripts/vehicle.gd")
+const NeighborhoodJobsScript = preload("res://scripts/neighborhood_jobs.gd")
 
 var WEAPONS: Array[Dictionary] = GameData.weapons()
 const SAVE_PATH := "user://pocket_district_save.json"
@@ -27,6 +29,11 @@ var interior: PocketInterior
 var camera: Camera3D
 var sky: WorldEnvironment
 var car_driven: PocketVehicle
+var garage_car: PocketVehicle
+var garage_owned: bool = false
+var garage_saved_position: Vector3 = Vector3.ZERO
+var garage_saved_yaw: float = PI * 0.5
+const GARAGE_CAR_PRICE: int = 1350
 var indoors: bool = false
 var active_building: String = ""
 var outdoor_exit: Vector3
@@ -53,6 +60,8 @@ var mission_marker: Node3D
 var mission_marker_label: Label3D
 var street_finds: PocketStreetFinds
 var street_find_records: Dictionary = {}
+var neighborhood_jobs: PocketNeighborhoodJobs
+var neighborhood_job_state: Dictionary = {}
 var deliveries: int = 0
 var autosave_clock: float = 0.0
 var camera_yaw: float = 0.0
@@ -166,7 +175,13 @@ func _ready() -> void:
 	for person in city.people:
 		connect_actor(person)
 	load_game()
+	if garage_owned:
+		spawn_garage_car()
 	street_finds.setup(city.buildings, street_find_records)
+	neighborhood_jobs = NeighborhoodJobsScript.new()
+	neighborhood_jobs.name = "NeighborhoodJobs"
+	city.add_child(neighborhood_jobs)
+	neighborhood_jobs.setup(city.buildings, neighborhood_job_state)
 	apply_outfit()
 	if mobile_optimization_enabled:
 		city.update_mobile_activity(hero.global_position)
@@ -645,6 +660,20 @@ func interaction() -> void:
 	if car_driven != null:
 		exit_car()
 		return
+	# Separate neighborhood jobs provide optional non-violent exploration.
+	if is_instance_valid(neighborhood_jobs):
+		var side_job_result: Dictionary = neighborhood_jobs.try_interact(hero.global_position)
+		if not side_job_result.is_empty():
+			var side_reward: int = int(side_job_result.get("reward", 0))
+			if side_reward > 0:
+				cash += side_reward
+				total_earnings += side_reward
+				sound.play_ui("cash")
+			else:
+				sound.play_ui("ui")
+			show_message(String(side_job_result["message"]))
+			save_game()
+			return
 	# Optional city discoveries reward exploring back streets.
 	var nearby_cache: int = street_finds.nearest(hero.global_position)
 	if nearby_cache >= 0:
@@ -676,13 +705,43 @@ func interaction() -> void:
 		else:
 			enter_interior(door)
 		return
-	var near_car := city.closest_car(hero.global_position)
+	var near_car := closest_usable_car(hero.global_position)
 	if near_car != null:
 		enter_car(near_car)
 		return
 	if hero.global_position.distance_to(mission_point) <= 5.2:
 		advance_delivery()
 
+
+
+func garage_spawn_position() -> Vector3:
+	for lot in city.buildings:
+		if String(lot.get("business", "")) == "garage":
+			var door: Vector3 = lot["door"]
+			return door + Vector3(4.0, 0.85, -2.5)
+	return Vector3(18.0, 0.85, -34.0)
+
+
+func spawn_garage_car() -> void:
+	if not garage_owned or is_instance_valid(garage_car):
+		return
+	garage_car = GarageVehicleScript.new()
+	garage_car.name = "OwnedGarageCar"
+	garage_car.setup(0, 1.0, 0.0, Color("#43c6b8"))
+	garage_car.legal_owner = true
+	garage_car.npc_speed = 0.0
+	garage_car.position = garage_saved_position if garage_saved_position != Vector3.ZERO else garage_spawn_position()
+	garage_car.rotation.y = garage_saved_yaw
+	city.car_root.add_child(garage_car)
+
+
+func closest_usable_car(at: Vector3, max_distance: float = 4.5) -> PocketVehicle:
+	var nearest: PocketVehicle = city.closest_car(at, max_distance)
+	if is_instance_valid(garage_car):
+		var owned_distance := garage_car.global_position.distance_to(at)
+		if owned_distance < max_distance and (nearest == null or owned_distance < nearest.global_position.distance_to(at)):
+			return garage_car
+	return nearest
 
 func enter_car(car: PocketVehicle) -> void:
 	if carjack_busy or car.occupied or car.being_stolen:
@@ -719,7 +778,8 @@ func enter_car(car: PocketVehicle) -> void:
 		var collider := hero.get_node("CollisionShape3D") as CollisionShape3D
 		collider.set_deferred("disabled", true)
 		carjack_busy = false
-		add_wanted(1)
+		if not car.legal_owner:
+			add_wanted(1)
 	)
 
 func exit_car() -> void:
@@ -894,6 +954,18 @@ func load_game() -> void:
 	mission_last_index = clampi(int(decoded.get("mission_index", 0)), 0, GameData.delivery_sites().size() - 1)
 	mission_limit = maxf(0.0, float(decoded.get("mission_limit", 0.0)))
 	mission_reward = maxi(0, int(decoded.get("mission_reward", 0)))
+	garage_owned = bool(decoded.get("garage_owned", false))
+	garage_saved_position = Vector3.ZERO
+	var saved_garage_position = decoded.get("garage_position", [])
+	if saved_garage_position is Array and saved_garage_position.size() == 3:
+		var saved_point := Vector3(float(saved_garage_position[0]), float(saved_garage_position[1]), float(saved_garage_position[2]))
+		if absf(saved_point.x) < 170.0 and absf(saved_point.z) < 170.0 and saved_point.y > -2.0 and saved_point.y < 14.0:
+			garage_saved_position = saved_point
+	garage_saved_yaw = float(decoded.get("garage_yaw", PI * 0.5))
+	var saved_jobs = decoded.get("neighborhood_jobs", {})
+	neighborhood_job_state = saved_jobs.duplicate(true) if saved_jobs is Dictionary else {}
+	if is_instance_valid(neighborhood_jobs):
+		neighborhood_jobs.restore(neighborhood_job_state)
 	var saved_street_finds = decoded.get("street_finds", {})
 	street_find_records = saved_street_finds.duplicate(true) if saved_street_finds is Dictionary else {}
 	if is_instance_valid(street_finds):
@@ -957,7 +1029,11 @@ func save_game() -> void:
 		"mission_index": mission_last_index,
 		"mission_limit": mission_limit,
 		"mission_reward": mission_reward,
+		"garage_owned": garage_owned,
+		"garage_position": [garage_car.global_position.x, garage_car.global_position.y, garage_car.global_position.z] if is_instance_valid(garage_car) else [],
+		"garage_yaw": garage_car.rotation.y if is_instance_valid(garage_car) else garage_saved_yaw,
 		"street_finds": street_find_records,
+		"neighborhood_jobs": neighborhood_jobs.save_state() if is_instance_valid(neighborhood_jobs) else neighborhood_job_state,
 		"interiors": layouts,
 		"homes": purchased_homes,
 		"furnishings": placed_furniture,
@@ -1087,6 +1163,9 @@ func update_hud() -> void:
 		caption = "FIRST JOB: FOLLOW GOLD PARCEL • PRESS ACTION"
 	elif deliveries == 0 and mission_stage == 1:
 		caption = "FIRST JOB: FOLLOW ARROW • DELIVER BEFORE TIME RUNS OUT"
+	if is_instance_valid(neighborhood_jobs) and neighborhood_jobs.active:
+		var job_delta: Vector3 = neighborhood_jobs.objective_position() - current_position
+		caption = "SIDE JOB %s  %s %dm" % [neighborhood_jobs.describe_progress(), waypoint_arrow(job_delta), roundi(Vector2(job_delta.x, job_delta.z).length())]
 	if hero.dead:
 		caption = "WASTED  •  RESPAWNING"
 	elif carjack_busy:
@@ -1104,17 +1183,19 @@ func update_hud() -> void:
 			caption = "RETURN TO THE EXIT MARKER"
 	elif car_driven != null:
 		caption = "ACTION: EXIT CAR  •  STICK TO DRIVE"
+	elif is_instance_valid(neighborhood_jobs) and neighborhood_jobs.close_to_job(hero.global_position):
+		caption = "ACTION: " + neighborhood_jobs.action_hint()
 	elif street_finds.nearest(hero.global_position) >= 0:
 		caption = "ACTION: SEARCH STREET CACHE"
 	elif hero.global_position.distance_to(mission_point) <= 2.8:
 		caption = "ACTION: COLLECT PARCEL" if mission_stage == 0 else "ACTION: DELIVER PARCEL"
 	elif nearby_resident != null and (nearby_door.is_empty() or hero.global_position.distance_to(nearby_door["door"]) > 1.6):
 		var profile: Dictionary = ResidentDialogue.make_profile(nearby_resident.resident_id)
-		caption = "ACTION: 話す - %s" % String(profile["name"])
+		caption = "ACTION: 話す - %s / %s" % [String(profile["name"]), nearby_resident.daily_role]
 	elif not nearby_door.is_empty():
 		caption = "ACTION: GUN SHOP" if bool(nearby_door["shop"]) else ("ACTION: %s" % String(nearby_door.get("business", "ENTER")).to_upper())
-	elif city.closest_car(hero.global_position) != null:
-		caption = "ACTION: TAKE VEHICLE"
+	elif closest_usable_car(hero.global_position) != null:
+		caption = "ACTION: DRIVE YOUR CAR" if is_instance_valid(garage_car) and garage_car.global_position.distance_to(hero.global_position) < 4.5 else "ACTION: TAKE VEHICLE"
 	elif hero.global_position.distance_to(mission_point) < 5.2:
 		caption = "ACTION: COLLECT PARCEL" if mission_stage == 0 else "ACTION: DELIVER PARCEL"
 	hint_label.text = display_message if display_message_time > 0.0 else caption
@@ -1589,8 +1670,10 @@ func create_commerce_ui() -> void:
 
 
 func show_commerce(title: String, options: Array[Dictionary], lot: Dictionary = {}) -> void:
-	commerce_lot = lot
-	commerce_options = options
+	# A lot Dictionary belongs to city.buildings. Mutating commerce_lot during
+	# close() must NEVER erase the backing building or break minimap/door queries.
+	commerce_lot = lot.duplicate(true)
+	commerce_options = options.duplicate(true)
 	commerce_header.text = title + "     所持金 $" + str(cash)
 	commerce_panel.visible = true
 	fire_held = false
@@ -1605,7 +1688,13 @@ func show_commerce(title: String, options: Array[Dictionary], lot: Dictionary = 
 func open_commerce_for(lot: Dictionary) -> void:
 	var business: String = String(lot.get("business", "general"))
 	var choices: Array[Dictionary] = []
-	if business == "apartment":
+	if business == "garage":
+		if not garage_owned:
+			choices.append({"text": "市民用カーを購入 $%d（手配なし）" % GARAGE_CAR_PRICE, "type": "buy_garage_car"})
+		else:
+			choices.append({"text": "購入済みカーをガレージへ回送（無料）", "type": "recall_garage_car"})
+		choices.append({"text": "ガレージ内を見学", "type": "enter"})
+	elif business == "apartment":
 		var listing: String = String(lot["id"])
 		if not purchased_homes.has(listing):
 			choices.append({"text": "この住居を購入 $%d" % int(lot["home_price"]), "type": "buy_home", "cost": int(lot["home_price"])})
@@ -1646,6 +1735,29 @@ func select_commerce_option(index: int) -> void:
 			var lot: Dictionary = commerce_lot.duplicate(true)
 			close_commerce()
 			enter_interior(lot)
+		"buy_garage_car":
+			if garage_owned or cash < GARAGE_CAR_PRICE:
+				show_message("NOT ENOUGH CASH" if not garage_owned else "ALREADY OWNED")
+				return
+			cash -= GARAGE_CAR_PRICE
+			garage_owned = true
+			spawn_garage_car()
+			save_game()
+			sound.play_ui("cash")
+			close_commerce()
+			show_message("GARAGE CAR PURCHASED - NO WANTED STARS")
+		"recall_garage_car":
+			if is_instance_valid(garage_car) and garage_car.occupied:
+				show_message("EXIT YOUR VEHICLE FIRST")
+				return
+			if is_instance_valid(garage_car):
+				garage_car.global_position = garage_spawn_position()
+				garage_car.rotation.y = PI * 0.5
+				garage_car.drive_speed = 0.0
+				garage_car.velocity = Vector3.ZERO
+			save_game()
+			close_commerce()
+			show_message("VEHICLE RECALLED TO GARAGE")
 		"buy_home":
 			var cost: int = int(entry.get("cost", 0))
 			if cost < 1 or cash < cost:

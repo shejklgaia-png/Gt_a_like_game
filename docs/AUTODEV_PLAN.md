@@ -89,3 +89,19 @@ On the previous main commit, Web export was successful but `actions/configure-pa
 - On real Android phone: verify the first parcel remains visible and collectible, driving input, alley/curb safety, police pursuit, indoor merchant dialogue, and performance at rush-hour.
 - Watch long-term vehicle following for headway stability and unintended stops. If stalls are detected, increase temporal smoothing or cap waiting/replanning time.
 - No use of third-party commercial IP assets. Do not modify SERA.
+
+## G. City-life expansion milestone — 2026-11-18
+
+See [CITY_LIFE_MILESTONE.md](CITY_LIFE_MILESTONE.md). The following have been developed on PR #10 and require green CI before being regarded as released:
+
+- 46 outdoor citizens keep their stable identities but now seek business-linked shopping/work/home/dining stops; crosswalk signals and nonblocking lane behavior remain.
+- A separate 2-stop neighborhood task board cycles between local surveys, food checks and nightlife inspections, each with distinct reward and persistent progress.
+- A new legal CITY GARAGE allows the purchase/recall of an owned car (no automatic carjacking wanted stars), with persistent last position and direction.
+- Map and contextual HUD distinguish legitimate work, private transport and original courier gameplay.
+- Fixed a pre-existing aliasing corruption: `show_commerce` now deep-copies incoming lot data so `close_commerce().clear()` cannot erase records inside `city.buildings`. This error was reproducible in the Godot CI log but previously allowed the run to pass; the new test script is now guarded against silent GDScript `SCRIPT ERROR` output.
+
+Next after CI acceptance:
+1. Real-device walkthrough of garage parking, owned car recall and both concurrent quest types. Verify input zones and HUD text never obscure the vehicle/mission controls.
+2. NPC *time-scheduled* enter/leave buildings rather than stop-only routines, respecting collision clearances, memory caps and signal phases.
+3. Dynamic ambient incidents that generate consequences and new optional short tasks.
+4. Repeatable diverse economy and job progression that does not reward automatic wanted escalation.

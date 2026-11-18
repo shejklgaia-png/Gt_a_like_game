@@ -40,7 +40,10 @@ static func install(parent: Node3D, buildings: Array[Dictionary]) -> void:
 				sign_tint = Color("#a9d3a5")
 			_:
 				pass
-		if business == "apartment":
+		if business == "garage":
+			Shapes.box(root, Vector3(center.x, 4.75, front - 0.23), Vector3(width * 0.78, 0.28, 0.45), Color("#45d9bf"))
+			Shapes.box(root, Vector3(center.x - width * 0.30, 1.85, front - 0.18), Vector3(2.5, 2.8, 0.12), Color("#4d7f86"))
+		elif business == "apartment":
 			Shapes.box(root, Vector3(center.x + width * 0.30, 1.3, front - 0.28), Vector3(1.3, 1.5, 0.12), Color("#477b75"))
 			Shapes.sign3d(root, "HOME $%d" % int(lot["home_price"]), Vector3(center.x + width * 0.30, 1.8, front - 0.40), Color("#dcf5cc"))
 		elif business in ["supermarket", "convenience", "clothing", "furniture"]:

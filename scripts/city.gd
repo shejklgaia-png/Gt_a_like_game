@@ -276,6 +276,7 @@ func spawn_civilians() -> void:
 		person.setup(false, person.position, seed_number, i % 2)
 		person.resident_id = i
 		person_root.add_child(person)
+		person.configure_daily_routine(buildings)
 		people.append(person)
 
 
@@ -344,6 +345,7 @@ func replenish_pedestrians() -> Array[PocketActor]:
 		person.setup(false, person.position, rng.randi(), axis)
 		person.resident_id = index
 		person_root.add_child(person)
+		person.configure_daily_routine(buildings)
 		people[index] = person
 		newcomers.append(person)
 	return newcomers

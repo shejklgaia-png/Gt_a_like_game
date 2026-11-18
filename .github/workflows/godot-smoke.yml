@@ -37,3 +37,11 @@ jobs:
         run: godot --headless --path . --script res://scripts/stability_test.gd
       - name: Exercise one hundred deterministic open-world QA cycles
         run: godot --headless --path . --script res://scripts/hundred_cycle_test.gd
+      - name: Validate citizen routines, neighborhood jobs and owned garage vehicle
+        run: |
+          set -o pipefail
+          godot --headless --path . --script res://scripts/city_life_test.gd 2>&1 | tee /tmp/pocket_city_life_test.log
+          if grep -E 'SCRIPT ERROR:|Parse Error:' /tmp/pocket_city_life_test.log; then
+            echo "Unexpected GDScript runtime or parse error in city-life test"
+            exit 1
+          fi
