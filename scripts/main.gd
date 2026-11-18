@@ -638,6 +638,11 @@ func interaction() -> void:
 	if car_driven != null:
 		exit_car()
 		return
+	# A parcel almost underfoot should not be stolen by the proximity
+	# radius of an adjacent building entrance, parked car, or resident.
+	if hero.global_position.distance_to(mission_point) <= 2.8:
+		advance_delivery()
+		return
 	var door := city.closest_door(hero.global_position)
 	if wanted == 0:
 		var resident := city.closest_resident(hero.global_position)
@@ -1062,6 +1067,8 @@ func update_hud() -> void:
 			caption = "RETURN TO THE EXIT MARKER"
 	elif car_driven != null:
 		caption = "ACTION: EXIT CAR  •  STICK TO DRIVE"
+	elif hero.global_position.distance_to(mission_point) <= 2.8:
+		caption = "ACTION: COLLECT PARCEL" if mission_stage == 0 else "ACTION: DELIVER PARCEL"
 	elif nearby_resident != null and (nearby_door.is_empty() or hero.global_position.distance_to(nearby_door["door"]) > 1.6):
 		var profile: Dictionary = ResidentDialogue.make_profile(nearby_resident.resident_id)
 		caption = "ACTION: 話す - %s" % String(profile["name"])
