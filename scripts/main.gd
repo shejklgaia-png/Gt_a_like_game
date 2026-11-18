@@ -14,6 +14,7 @@ const ResidentDialogue = preload("res://scripts/resident_dialogue.gd")
 const SessionDiagnostics = preload("res://scripts/session_diagnostics.gd")
 const Stores = preload("res://scripts/store_catalog.gd")
 const Furniture = preload("res://scripts/furniture_catalog.gd")
+const StreetFinds = preload("res://scripts/street_finds.gd")
 
 var WEAPONS: Array[Dictionary] = GameData.weapons()
 const SAVE_PATH := "user://pocket_district_save.json"
@@ -50,6 +51,8 @@ var mission_stage: int = 0
 var mission_point := Vector3.ZERO
 var mission_marker: Node3D
 var mission_marker_label: Label3D
+var street_finds: PocketStreetFinds
+var street_find_records: Dictionary = {}
 var deliveries: int = 0
 var autosave_clock: float = 0.0
 var camera_yaw: float = 0.0
@@ -139,6 +142,9 @@ func _ready() -> void:
 	city.name = "OutdoorWorld"
 	add_child(city)
 	city.build_city()
+	street_finds = StreetFinds.new()
+	street_finds.name = "StreetFinds"
+	city.add_child(street_finds)
 	interior = InteriorScript.new()
 	interior.name = "IndoorWorld"
 	interior.visible = false
@@ -160,6 +166,7 @@ func _ready() -> void:
 	for person in city.people:
 		connect_actor(person)
 	load_game()
+	street_finds.setup(city.buildings, street_find_records)
 	apply_outfit()
 	if mobile_optimization_enabled:
 		city.update_mobile_activity(hero.global_position)
@@ -638,6 +645,18 @@ func interaction() -> void:
 	if car_driven != null:
 		exit_car()
 		return
+	# Optional city discoveries reward exploring back streets.
+	var nearby_cache: int = street_finds.nearest(hero.global_position)
+	if nearby_cache >= 0:
+		var found_reward := street_finds.collect(nearby_cache)
+		if found_reward > 0:
+			street_find_records = street_finds.collected.duplicate()
+			cash += found_reward
+			total_earnings += found_reward
+			sound.play_ui("cash")
+			show_message("STREET FIND +$%d  (%d/%d)" % [found_reward, street_finds.count_collected(), street_finds.total_count()])
+			save_game()
+		return
 	# A parcel almost underfoot should not be stolen by the proximity
 	# radius of an adjacent building entrance, parked car, or resident.
 	if hero.global_position.distance_to(mission_point) <= 2.8:
@@ -875,6 +894,11 @@ func load_game() -> void:
 	mission_last_index = clampi(int(decoded.get("mission_index", 0)), 0, GameData.delivery_sites().size() - 1)
 	mission_limit = maxf(0.0, float(decoded.get("mission_limit", 0.0)))
 	mission_reward = maxi(0, int(decoded.get("mission_reward", 0)))
+	var saved_street_finds = decoded.get("street_finds", {})
+	street_find_records = saved_street_finds.duplicate(true) if saved_street_finds is Dictionary else {}
+	if is_instance_valid(street_finds):
+		street_finds.collected = street_find_records.duplicate(true)
+		street_finds.refresh()
 	layouts = decoded.get("interiors", {})
 	load_housing_state(decoded)
 	resident_relations.clear()
@@ -933,6 +957,7 @@ func save_game() -> void:
 		"mission_index": mission_last_index,
 		"mission_limit": mission_limit,
 		"mission_reward": mission_reward,
+		"street_finds": street_find_records,
 		"interiors": layouts,
 		"homes": purchased_homes,
 		"furnishings": placed_furniture,
@@ -1026,7 +1051,7 @@ func update_stick(point: Vector2) -> void:
 func update_hud() -> void:
 	if status_label == null:
 		return
-	status_label.text = "HP %03d    $%d    %s" % [ceili(hero.hp), cash, "★".repeat(wanted) + "☆".repeat(5 - wanted)]
+	status_label.text = "HP %03d   $%d   %s   ◈%d/%d" % [ceili(hero.hp), cash, "★".repeat(wanted) + "☆".repeat(5 - wanted), street_finds.count_collected(), street_finds.total_count()]
 	var gun := selected_gun()
 	var gun_id: String = gun["id"]
 	var active_mag := int(loaded_rounds.get(gun_id, 0))
@@ -1079,6 +1104,8 @@ func update_hud() -> void:
 			caption = "RETURN TO THE EXIT MARKER"
 	elif car_driven != null:
 		caption = "ACTION: EXIT CAR  •  STICK TO DRIVE"
+	elif street_finds.nearest(hero.global_position) >= 0:
+		caption = "ACTION: SEARCH STREET CACHE"
 	elif hero.global_position.distance_to(mission_point) <= 2.8:
 		caption = "ACTION: COLLECT PARCEL" if mission_stage == 0 else "ACTION: DELIVER PARCEL"
 	elif nearby_resident != null and (nearby_door.is_empty() or hero.global_position.distance_to(nearby_door["door"]) > 1.6):
