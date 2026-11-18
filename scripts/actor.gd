@@ -45,6 +45,10 @@ var crosswalk_active: bool = false
 var panic_time: float = 0.0
 var strolling_speed: float = 2.1
 var stroll_pause: float = 0.0
+var daily_role: String = ""
+var routine_stops: Array[float] = []
+var routine_cursor: int = 0
+var routine_stop_active: bool = false
 var navigation: PocketNavGrid
 var pursuit_route := PackedVector2Array()
 var pursuit_index: int = 0
@@ -111,6 +115,53 @@ func joint(at: Vector3, size: Vector3, tint: Color, height_offset: float) -> Nod
 	return pivot
 
 
+
+func configure_daily_routine(lots: Array[Dictionary]) -> void:
+	if officer or indoor_mode or resident_id < 0:
+		return
+	var labels := ["買い物", "勤務", "帰宅", "外食"]
+	daily_role = labels[resident_id % labels.size()]
+	routine_stops.clear()
+	routine_cursor = 0
+	var preferred_types: Array[String] = ["supermarket", "office", "apartment", "restaurant"]
+	var preferred_type: String = preferred_types[resident_id % preferred_types.size()]
+	var lane: float = anchor.x if sidewalk_axis == 0 else anchor.z
+	var along: float = anchor.z if sidewalk_axis == 0 else anchor.x
+	var closest_preferred := INF
+	var closest_home := INF
+	var preferred_stop := INF
+	var home_stop := INF
+	var fallback := INF
+	var closest_fallback := INF
+	for lot in lots:
+		var door: Vector3 = lot["door"]
+		var lateral: float = door.x if sidewalk_axis == 0 else door.z
+		var coordinate: float = door.z if sidewalk_axis == 0 else door.x
+		var gap := absf(lateral - lane)
+		var along_gap := absf(coordinate - along)
+		if gap > 15.0 or along_gap > 82.0:
+			continue
+		if along_gap < closest_fallback:
+			closest_fallback = along_gap
+			fallback = coordinate
+		if String(lot["business"]) == preferred_type and along_gap < closest_preferred:
+			closest_preferred = along_gap
+			preferred_stop = coordinate
+		if String(lot["business"]) == "apartment" and along_gap < closest_home:
+			closest_home = along_gap
+			home_stop = coordinate
+	if preferred_stop == INF:
+		preferred_stop = fallback
+	if preferred_stop != INF:
+		routine_stops.append(preferred_stop)
+	if home_stop != INF and (routine_stops.is_empty() or absf(home_stop - routine_stops[0]) > 3.0):
+		routine_stops.append(home_stop)
+	# Different badge colors communicate a routine without generic speech.
+	var badges := [Color("#e9cb7b"), Color("#8ebbdc"), Color("#a4d5a0"), Color("#e2a2cb")]
+	Shapes.box(visual, Vector3(0.0, 1.39, -0.21), Vector3(0.18, 0.19, 0.055), badges[resident_id % badges.size()])
+	if not routine_stops.is_empty():
+		select_sidewalk_goal()
+
 func select_sidewalk_goal() -> void:
 	# A route has a sidewalk approach, the crossing, then a sidewalk destination.
 	# Pedestrians never randomly cut across the vehicular lane.
@@ -123,6 +174,18 @@ func select_sidewalk_goal() -> void:
 	if rng.randf() < 0.22:
 		other = clampi(index + (1 if rng.randf() < 0.5 else -1), -3, 2)
 	var along := float(other) * 36.0 + rng.randf_range(9.0, 27.0)
+	routine_stop_active = false
+	if not routine_stops.is_empty() and rng.randf() < 0.64:
+		var assigned_stop: float = routine_stops[routine_cursor % routine_stops.size()]
+		var assigned_block := clampi(floori(assigned_stop / 36.0), -3, 2)
+		# Cross no more than one intersection per route to preserve safe lights.
+		other = clampi(assigned_block, maxi(-3, index - 1), mini(2, index + 1))
+		if other == assigned_block:
+			along = clampf(assigned_stop, float(other) * 36.0 + 9.0, float(other) * 36.0 + 27.0)
+			routine_stop_active = true
+			routine_cursor += 1
+		else:
+			along = float(other) * 36.0 + 18.0
 	var sign_dir := 1.0 if along >= reference else -1.0
 	var offset := sign_dir * 0.32
 	var lateral := (anchor.x + offset) if sidewalk_axis == 0 else (anchor.z + offset)
@@ -177,6 +240,7 @@ func flee_from(at: Vector3) -> void:
 	path_queue.clear()
 	crosswalk_waiting = false
 	crosswalk_active = false
+	routine_stop_active = false
 	target = Vector3(anchor.x, anchor.y, extent) if sidewalk_axis == 0 else Vector3(extent, anchor.y, anchor.z)
 	stalled_time = 0.0
 	previous_distance = INF
@@ -259,10 +323,14 @@ func _physics_process(delta: float) -> void:
 		else:
 			target = anchor
 	elif Vector2(global_position.x - target.x, global_position.z - target.z).length() < 0.85:
-		# A brief pause at ordinary sidewalk destinations gives citizens natural
-		# rhythms. Never pause at a crosswalk approach or mid-crossing.
-		if not officer and not crosswalk_active and path_queue.is_empty() and rng.randf() < 0.14:
-			stroll_pause = rng.randf_range(0.55, 1.45)
+		# Store/home visits get a longer pause than ordinary wandering.
+		# Nobody stops mid-crossing, and alarmed citizens abandon the routine.
+		if not officer and not crosswalk_active and path_queue.is_empty() and panic_time <= 0.0:
+			if routine_stop_active:
+				stroll_pause = rng.randf_range(1.5, 3.6)
+				routine_stop_active = false
+			elif rng.randf() < 0.14:
+				stroll_pause = rng.randf_range(0.55, 1.45)
 		advance_waypoint()
 	var direction := target - global_position
 	direction.y = 0
