@@ -693,6 +693,15 @@ func interaction() -> void:
 	if car_driven != null:
 		exit_car()
 		return
+	# Social introductions require a real conversation with the designated
+	# citizen. Give that NPC priority over adjacent storefronts and caches.
+	if is_instance_valid(conversation_activities) and conversation_activities.active and conversation_activities.kind == "meet":
+		var friend_id: int = conversation_activities.target_resident_id()
+		if friend_id >= 0 and friend_id < city.people.size():
+			var friend: PocketActor = city.people[friend_id]
+			if is_instance_valid(friend) and not friend.dead and hero.global_position.distance_to(friend.global_position) <= 3.6:
+				begin_conversation(friend)
+				return
 	# A conversation can turn into a tangible city activity. At the chosen
 	# site ACTION advances its own route before normal commerce/parcel checks.
 	if is_instance_valid(conversation_activities):
