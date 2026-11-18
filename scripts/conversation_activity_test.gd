@@ -68,6 +68,9 @@ func check() -> void:
 	if spoken != String(original_tree["nodes"]["start"]["text"]) or not Dialogue.is_valid_tree(original_tree):
 		fail("Activity UI modified the author's unique spoken paragraphs", 459)
 		return
+	if game.dialogue_recommend_button == null or not game.dialogue_recommend_button.visible:
+		fail("Resident conversation has no route into pre-existing city services", 482)
+		return
 	if game.dialogue_panel.find_children("*", "ScrollContainer", true, false).size() < 2:
 		fail("Mobile dialogue and activity choices are not vertically scrollable", 460)
 		return
@@ -187,8 +190,51 @@ func check() -> void:
 			fail("Social introduction did not resolve through a valid actual conversation", 481)
 			return
 		game.end_conversation()
+	# Independently, NPC conversations can recommend *existing* shops,
+	# housing, garages and board jobs without inventing any speech.
+	var recommender: PocketActor = game.city.people[2]
+	game.hero.global_position = recommender.global_position + Vector3(0.35, 0, 0.2)
+	game.begin_conversation(recommender)
+	if not game.dialogue_panel.visible or game.dialogue_recommendation.is_empty():
+		fail("A second resident did not offer existing city systems", 483)
+		return
+	var recommendation: Dictionary = game.dialogue_recommendation.duplicate(true)
+	var prior_cash: int = game.cash
+	game.dialogue_recommend_button.pressed.emit()
+	if game.dialogue_panel.visible or game.cash != prior_cash:
+		fail("Recommendation navigated without closing conversation, or paid without action", 484)
+		return
+	if not game.navigation_kind in ["lot", "job_board"] or game.navigation_kind != String(recommendation["kind"]):
+		fail("NPC recommendation did not select a real CITY GPS service", 485)
+		return
+	if game.city_waypoint_point().distance_to(recommendation["position"]) > 0.2:
+		fail("Recommended destination is not the actual entry or job board", 486)
+		return
+	game.clear_city_waypoint()
+	# Declining a partly accepted request must remove its waypoint and never
+	# consume a resident's one-time completion status or pay a reward.
+	var rescuer: PocketActor = game.city.people[3]
+	if not activities.accept("food", rescuer.resident_id):
+		fail("Could not accept another activity for decline test", 487)
+		return
+	game.set_city_waypoint("activity", "", "食べ歩きの下見", activities.objective_position())
+	var before_cancel: int = game.cash
+	game.cancel_conversation_activity()
+	if activities.active or game.cash != before_cancel or game.navigation_kind == "activity":
+		fail("Cancelling a social activity did not cleanly remove the active state", 488)
+		return
+	if activities.completed.has(activities.record_key(rescuer.resident_id, "food")):
+		fail("Cancelling activity falsely marked request complete", 489)
+		return
+	game.save_game()
+	game.load_game()
+	if activities.active or activities.completed.has(activities.record_key(rescuer.resident_id, "food")):
+		fail("Cancelled activity returned after save and reload", 490)
+		return
 	print("PASS: 46 residents offer multiple diverse activities tied to role/topic")
 	print("PASS: original dialogue paragraphs and 200-topic content remain unchanged")
 	print("PASS: tap an offer -> real mission, 2-site ACTION progression, GPS and CITY phone")
 	print("PASS: 2-stage save/load, once-only cash, rapport, anti-farming, introduction dialogue")
+	print("PASS: conversations recommend existing city services without instant rewards")
+	print("PASS: jobs can be cancelled without payment or corrupting saves")
 	quit(0)
