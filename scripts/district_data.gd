@@ -6,7 +6,7 @@ const LABELS := {
 	"nightlife": "風俗街", "residential": "住宅街", "central": "中心街"
 }
 const BUSINESS_NAMES := {
-	"gun": "GUN SHOP", "supermarket": "SUPERMARKET", "convenience": "CONVENIENCE",
+	"gun": "GUN SHOP", "garage": "CITY GARAGE", "supermarket": "SUPERMARKET", "convenience": "CONVENIENCE",
 	"clothing": "FASHION", "furniture": "FURNITURE", "market": "MARKET",
 	"office": "OFFICE", "lounge": "NIGHT LOUNGE", "club": "CLUB",
 	"restaurant": "DINER", "apartment": "FOR SALE", "general": "ENTER"
@@ -16,7 +16,7 @@ const DISTRICT_COLORS := {
 	"shopping": Color("#ef9fbc"), "nightlife": Color("#a58de6"),
 	"residential": Color("#a9cea3"), "central": Color("#8acfd0")
 }
-const STORE_TYPES := ["gun", "supermarket", "convenience", "clothing", "furniture", "market", "office", "lounge", "club", "restaurant", "apartment", "general"]
+const STORE_TYPES := ["gun", "garage", "supermarket", "convenience", "clothing", "furniture", "market", "office", "lounge", "club", "restaurant", "apartment", "general"]
 
 static func district_for(ix: int, iz: int) -> String:
 	if ix <= -1 and iz <= -1:
@@ -35,6 +35,8 @@ static func district_for(ix: int, iz: int) -> String:
 static func business_for(ix: int, iz: int, district: String) -> String:
 	if ix == 0 and iz == -1:
 		return "gun"
+	if ix == 0 and iz == 1:
+		return "garage"
 	if ix == -2 and iz == -2:
 		return "supermarket"
 	if ix == 1 and iz == -2:
