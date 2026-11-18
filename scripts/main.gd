@@ -306,6 +306,14 @@ func on_quest_started(quest: Dictionary) -> void:
 
 
 func on_quest_advanced(quest: Dictionary) -> void:
+	if navigation_kind == "quest" and navigation_id == String(quest.get("id", "")):
+		var target: Dictionary = quest_waypoint(navigation_id)
+		if target.is_empty():
+			clear_city_waypoint()
+		else:
+			navigation_position = target["point"]
+			city_route.clear()
+			walk_route.clear()
 	show_message("依頼進行：" + String(quest.get("title", "")))
 	display_message_time = 5.5
 	save_game()
@@ -1192,7 +1200,7 @@ func active_city_route() -> RefCounted:
 
 func set_city_waypoint(kind: String, key: String, title: String, point: Vector3) -> void:
 	# The phone sets a route, not fast travel or remote shopping.
-	if not kind in ["delivery", "side_job", "job_board", "lot", "owned_car", "cache", "resident", "activity"]:
+	if not kind in ["delivery", "side_job", "job_board", "lot", "owned_car", "cache", "resident", "activity", "quest"]:
 		return
 	navigation_kind = kind
 	navigation_id = key
@@ -1225,6 +1233,10 @@ func city_waypoint_point() -> Vector3:
 		"activity":
 			if is_instance_valid(conversation_activities) and conversation_activities.active:
 				return conversation_activities.objective_position()
+		"quest":
+			var destination: Dictionary = quest_waypoint(navigation_id)
+			if not destination.is_empty():
+				return destination["point"]
 		"side_job":
 			if is_instance_valid(neighborhood_jobs):
 				return neighborhood_jobs.objective_position()
@@ -1289,7 +1301,7 @@ func load_game() -> void:
 			garage_saved_position = saved_point
 	garage_saved_yaw = float(decoded.get("garage_yaw", PI * 0.5))
 	navigation_kind = String(decoded.get("nav_kind", ""))
-	if not navigation_kind in ["delivery", "side_job", "job_board", "lot", "owned_car", "cache", "resident", "activity"]:
+	if not navigation_kind in ["delivery", "side_job", "job_board", "lot", "owned_car", "cache", "resident", "activity", "quest"]:
 		navigation_kind = ""
 	navigation_id = String(decoded.get("nav_id", "")).substr(0, 80)
 	navigation_label = String(decoded.get("nav_label", "")).substr(0, 60) if navigation_kind != "" else ""
@@ -1303,6 +1315,10 @@ func load_game() -> void:
 		var nav := Vector3(float(saved_nav[0]), float(saved_nav[1]), float(saved_nav[2]))
 		if nav.is_finite() and absf(nav.x) < 180.0 and absf(nav.z) < 180.0 and nav.y > -2.0 and nav.y < 15.0:
 			navigation_position = nav
+	var saved_quests = decoded.get("quest_journal", {})
+	quest_state = saved_quests.duplicate(true) if saved_quests is Dictionary else {}
+	if is_instance_valid(quest_director):
+		quest_director.restore(quest_state)
 	var saved_activity = decoded.get("conversation_activities", {})
 	conversation_activity_state = saved_activity.duplicate(true) if saved_activity is Dictionary else {}
 	if is_instance_valid(conversation_activities):
@@ -1384,6 +1400,7 @@ func save_game() -> void:
 		"street_finds": street_find_records,
 		"neighborhood_jobs": neighborhood_jobs.save_state() if is_instance_valid(neighborhood_jobs) else neighborhood_job_state,
 		"conversation_activities": conversation_activities.save_state() if is_instance_valid(conversation_activities) else conversation_activity_state,
+		"quest_journal": quest_director.save_state() if is_instance_valid(quest_director) else quest_state,
 		"interiors": layouts,
 		"homes": purchased_homes,
 		"furnishings": placed_furniture,
