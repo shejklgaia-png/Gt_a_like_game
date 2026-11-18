@@ -676,7 +676,8 @@ func enter_car(car: PocketVehicle) -> void:
 	var destination := car.entrance_point()
 	hero.face_direction(-car.global_transform.basis.x, 1.0)
 	var tween := create_tween()
-	tween.tween_property(hero, "global_position", Vector3(destination.x, 0.35, destination.z), 0.42).set_trans(Tween.TRANS_SINE)
+	# Car height follows its road deck, including 7 m elevated expressway.
+	tween.tween_property(hero, "global_position", Vector3(destination.x, maxf(0.24, destination.y - 0.65), destination.z), 0.42).set_trans(Tween.TRANS_SINE)
 	tween.tween_interval(0.36)
 	tween.tween_callback(func() -> void:
 		if not is_instance_valid(car) or not is_instance_valid(hero):
@@ -718,22 +719,33 @@ func exit_car() -> void:
 	var leave_at := Vector3.ZERO
 	var valid := false
 	for option in options:
+		# Probe the local road deck; exits on elevated ramps must not teleport
+		# the player to global ground at y=0. Only accept near-level surfaces.
+		var ground_probe := PhysicsRayQueryParameters3D.create(
+			option + Vector3.UP * 1.4,
+			option - Vector3.UP * 2.5
+		)
+		ground_probe.collision_mask = 1
+		var ground_hit := get_world_3d().direct_space_state.intersect_ray(ground_probe)
+		if ground_hit.is_empty():
+			continue
+		var floor_point: Vector3 = ground_hit["position"]
 		var sphere := SphereShape3D.new()
 		sphere.radius = 0.62
 		var query := PhysicsShapeQueryParameters3D.new()
 		query.shape = sphere
-		query.transform = Transform3D(Basis.IDENTITY, Vector3(option.x, 0.91, option.z))
+		query.transform = Transform3D(Basis.IDENTITY, Vector3(option.x, floor_point.y + 0.91, option.z))
 		query.collision_mask = 9 # Static obstacles and other vehicles.
 		query.exclude = [vehicle.get_rid()]
 		var hit := get_world_3d().direct_space_state.intersect_shape(query, 1)
 		if hit.is_empty():
-			leave_at = option
+			leave_at = Vector3(option.x, floor_point.y + 0.24, option.z)
 			valid = true
 			break
 	if not valid:
 		show_message("NO CLEAR PLACE TO EXIT")
 		return
-	hero.global_position = Vector3(leave_at.x, 0.24, leave_at.z)
+	hero.global_position = leave_at
 	hero.visible = true
 	var body := hero.get_node("CollisionShape3D") as CollisionShape3D
 	body.set_deferred("disabled", false)
