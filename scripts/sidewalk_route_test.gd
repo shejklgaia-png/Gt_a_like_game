@@ -84,11 +84,11 @@ func check() -> void:
 	var across_z := Vector3(6.35, 0.3, 13.0)
 	walk.clear()
 	walk.refresh(Vector3(6.35, 0.3, -6.35), across_z)
-	var signal: Dictionary = walk.next_crosswalk(Vector3(6.35, 0.3, -6.35))
-	if signal.is_empty() or int(signal["axis"]) != 0:
+	var upcoming_signal: Dictionary = walk.next_crosswalk(Vector3(6.35, 0.3, -6.35))
+	if upcoming_signal.is_empty() or int(upcoming_signal["axis"]) != 0:
 		fail("GPS failed to recognize upcoming painted Z-direction crossing", 411)
 		return
-	if bool(signal["green"]) != Rules.pedestrians_have_green(0):
+	if bool(upcoming_signal["green"]) != Rules.pedestrians_have_green(0):
 		fail("GPS signal state disagrees with the world's shared traffic phase", 412)
 		return
 	var signal_hint := walk.crossing_hint(Vector3(6.35, 0.3, -6.35))
