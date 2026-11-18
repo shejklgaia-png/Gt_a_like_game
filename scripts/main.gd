@@ -1670,8 +1670,10 @@ func create_commerce_ui() -> void:
 
 
 func show_commerce(title: String, options: Array[Dictionary], lot: Dictionary = {}) -> void:
-	commerce_lot = lot
-	commerce_options = options
+	# A lot Dictionary belongs to city.buildings. Mutating commerce_lot during
+	# close() must NEVER erase the backing building or break minimap/door queries.
+	commerce_lot = lot.duplicate(true)
+	commerce_options = options.duplicate(true)
 	commerce_header.text = title + "     所持金 $" + str(cash)
 	commerce_panel.visible = true
 	fire_held = false
