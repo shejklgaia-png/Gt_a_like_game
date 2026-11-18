@@ -105,6 +105,15 @@ func run_checks() -> void:
 	if not game.garage_owned or not is_instance_valid(game.garage_car) or game.cash != 650:
 		fail("Purchasing a legal car did not take cash / spawn ownership", 215)
 		return
+	# Regression: closing commerce must not clear a Dictionary still referenced
+	# by the procedurally generated city building records.
+	for lot in town.buildings:
+		if not lot.has("door") or not lot.has("id") or not lot.has("business"):
+			fail("Commerce close() erased a city building record", 222)
+			return
+	if town.closest_door(garage_lot["door"]).is_empty():
+		fail("Garage interaction lost its world-space storefront after purchase", 223)
+		return
 	var garage_car: PocketVehicle = game.garage_car
 	if not garage_car.legal_owner or garage_car.npc_speed != 0.0:
 		fail("Purchased vehicle is not flagged as a safe parked vehicle", 216)
