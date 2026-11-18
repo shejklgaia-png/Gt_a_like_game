@@ -822,6 +822,7 @@ func interaction() -> void:
 					looted_buildings.append(active_building)
 				sound.play_ui("cash")
 				show_message("FOUND SUPPLIES +$%d" % reward)
+				quest_event("interior_loot", {"reward": reward, "business": active_building})
 				save_game()
 		elif interior.exit_near(hero.global_position):
 			leave_interior()
@@ -870,6 +871,8 @@ func interaction() -> void:
 			else:
 				sound.play_ui("ui")
 			show_message(String(side_job_result["message"]))
+			if String(side_job_result.get("event", "")) == "finish":
+				quest_event("sidejob_completed", {"reward": side_reward})
 			save_game()
 			return
 	# Optional city discoveries reward exploring back streets.
@@ -882,6 +885,7 @@ func interaction() -> void:
 			total_earnings += found_reward
 			sound.play_ui("cash")
 			show_message("STREET FIND +$%d  (%d/%d)" % [found_reward, street_finds.count_collected(), street_finds.total_count()])
+			quest_event("street_find", {"reward": found_reward})
 			save_game()
 		return
 	# A parcel almost underfoot should not be stolen by the proximity
@@ -896,6 +900,10 @@ func interaction() -> void:
 			begin_conversation(resident)
 			return
 	if not door.is_empty():
+		var business: String = String(door.get("business", ""))
+		quest_event("lot_action", {"business": business})
+		if business == "garage":
+			quest_event("garage_action")
 		if bool(door["shop"]):
 			open_shop()
 		elif String(door.get("business", "")) in ["apartment", "garage"] or Stores.is_retail(String(door.get("business", ""))):
@@ -972,6 +980,9 @@ func enter_car(car: PocketVehicle) -> void:
 		engine_audio.play()
 		car.open_driver_door(false)
 		sound.play("car_door", car.global_position)
+		quest_last_driven = car.total_driven
+		quest_driving_start_meter = 0.0
+		quest_event("car_entered", {"ownership": "owned" if car.legal_owner else "unowned"})
 		hero.stop_carjack()
 		hero.visible = false
 		var collider := hero.get_node("CollisionShape3D") as CollisionShape3D
@@ -1126,6 +1137,7 @@ func advance_delivery() -> void:
 			show_message("DELIVERED +$%d  |  CLEAN BONUS +$%d" % [payout, clean_bonus])
 		else:
 			show_message("DELIVERED +$%d" % payout)
+		quest_event("delivery_completed", {"reward": payout})
 		mission_limit = 0.0
 		mission_point = GameData.delivery_sites()[7]
 		save_game()
