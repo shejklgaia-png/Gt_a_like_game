@@ -1534,9 +1534,18 @@ func create_dialogue_ui() -> void:
 	for side in ["left", "right", "top", "bottom"]:
 		padding.add_theme_constant_override("margin_" + side, 17)
 	dialogue_panel.add_child(padding)
+	# A narrow phone must be able to scroll the entire conversation,
+	# including activity invitations and the close button. The individual
+	# authored passage remains scrollable when the subject text is long.
+	var dialogue_content_scroll := ScrollContainer.new()
+	dialogue_content_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	dialogue_content_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	dialogue_content_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	padding.add_child(dialogue_content_scroll)
 	var stack := VBoxContainer.new()
+	stack.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	stack.add_theme_constant_override("separation", 8)
-	padding.add_child(stack)
+	dialogue_content_scroll.add_child(stack)
 	dialogue_speaker = make_label(21, Color("#f6d797"))
 	stack.add_child(dialogue_speaker)
 	# Keep answers fixed and readable while allowing arbitrarily long paragraphs.
@@ -1559,6 +1568,16 @@ func create_dialogue_ui() -> void:
 		choice.pressed.connect(select_conversation_option.bind(index))
 		dialogue_options.append(choice)
 		stack.add_child(choice)
+	dialogue_activity_status = make_label(15, Color("#bdece2"))
+	dialogue_activity_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	stack.add_child(dialogue_activity_status)
+	for index in range(2):
+		var activity_button := make_button("", Color("#387565"))
+		activity_button.custom_minimum_size = Vector2(0, 48)
+		activity_button.add_theme_font_size_override("font_size", 16)
+		activity_button.pressed.connect(accept_conversation_activity.bind(index))
+		dialogue_activity_buttons.append(activity_button)
+		stack.add_child(activity_button)
 	dialogue_next = make_button("別の話題", Color("#476053"))
 	dialogue_next.custom_minimum_size = Vector2(0, 44)
 	dialogue_next.pressed.connect(continue_conversation)
@@ -1599,6 +1618,12 @@ func begin_conversation(resident: PocketActor) -> void:
 	dialogue_panel.visible = true
 	sound.play_ui("ui")
 	update_conversation_panel()
+	# Social introductions genuinely lead to another person's conversation,
+	# not a pay-on-proximity placeholder.
+	if is_instance_valid(conversation_activities):
+		var social_result: Dictionary = conversation_activities.meet_resident(resident.resident_id)
+		if not social_result.is_empty():
+			process_activity_result(social_result)
 
 
 func select_conversation_option(index: int) -> void:
@@ -1623,6 +1648,21 @@ func select_conversation_option(index: int) -> void:
 	sound.play_ui("ui")
 	update_conversation_panel()
 	# Persist periodically and on close, not on every displayed paragraph.
+
+
+func accept_conversation_activity(index: int) -> void:
+	if dialogue_panel == null or not dialogue_panel.visible or not is_instance_valid(conversation_actor):
+		return
+	if index < 0 or index >= dialogue_activity_offers.size() or not is_instance_valid(conversation_activities):
+		return
+	var offer: Dictionary = dialogue_activity_offers[index]
+	var speaker_id: int = conversation_actor.resident_id
+	if not conversation_activities.accept(String(offer["id"]), speaker_id):
+		return
+	var name: String = String(offer["title"])
+	end_conversation()
+	set_city_waypoint("activity", "", name, conversation_activities.objective_position())
+	show_message("住民の活動を開始：" + name)
 
 
 func continue_conversation() -> void:
@@ -1670,6 +1710,26 @@ func update_conversation_panel() -> void:
 		button.visible = i < conversation_displayed_options.size()
 		if button.visible:
 			button.text = "%d. %s" % [i + 1, String(conversation_displayed_options[i]["text"])]
+	# These are player-operable activities, not new NPC speech.
+	# Keep the 200-topic/2,000-opening authored dialogue tree intact.
+	dialogue_activity_offers.clear()
+	if is_instance_valid(conversation_activities):
+		if conversation_activities.active:
+			dialogue_activity_status.text = "活動進行中：" + conversation_activities.progress_text()
+		else:
+			dialogue_activity_offers = conversation_activities.offers_for(
+				conversation_actor.resident_id, conversation_actor.daily_role,
+				int(conversation_tree.get("scenario_id", 0))
+			)
+			dialogue_activity_status.text = "この住民との会話から始める街の活動" if not dialogue_activity_offers.is_empty() else "この住民から受けられる新しい活動はありません"
+	else:
+		dialogue_activity_status.text = ""
+	for i in range(dialogue_activity_buttons.size()):
+		var offer_button: Button = dialogue_activity_buttons[i]
+		offer_button.visible = i < dialogue_activity_offers.size()
+		if offer_button.visible:
+			var offered: Dictionary = dialogue_activity_offers[i]
+			offer_button.text = "▶ %s  ・  報酬 $%d" % [String(offered["title"]), int(offered["reward"])]
 	dialogue_exit.text = "会話を終える"
 
 
@@ -1683,6 +1743,7 @@ func end_conversation() -> void:
 	conversation_tree.clear()
 	conversation_seen.clear()
 	conversation_displayed_options.clear()
+	dialogue_activity_offers.clear()
 	conversation_node = ""
 	dialogue_panel.visible = false
 	stick_value = Vector2.ZERO
