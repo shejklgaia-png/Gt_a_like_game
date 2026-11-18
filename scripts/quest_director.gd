@@ -215,6 +215,10 @@ func on_event(event: String, payload: Dictionary = {}) -> void:
 	# Only known events can start quests.
 	if not event_index.has(event) or active.size() >= MAX_ACTIVE:
 		return
+	# Distance accumulation updates active vehicle steps every frame. Only a
+	# genuine 45 m travel milestone is allowed to discover a new driving job.
+	if event == "driving" and not bool(payload.get("ready", false)):
+		return
 	if active.any(func(entry: Dictionary) -> bool: return String(get_quest(String(entry["id"])).get("trigger", "")) == event):
 		return
 	if elapsed - float(started_at.get(event, -10000.0)) < REOFFER_DELAY:
