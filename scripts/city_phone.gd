@@ -229,7 +229,7 @@ func fill_shops() -> void:
 
 func fill_homes() -> void:
 	note("住居を購入すると、室内への入室と家具の配置ができます。")
-	var owned_count := game.purchased_homes.size()
+	var owned_count: int = game.purchased_homes.size()
 	note("所有物件：%d件   家具の所持種類：%d" % [owned_count, game.furniture_inventory.size()])
 	for lot in game.city.buildings:
 		if String(lot.get("business", "")) != "apartment":
