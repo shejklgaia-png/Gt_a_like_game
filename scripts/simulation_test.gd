@@ -39,6 +39,22 @@ func exercise() -> void:
 	if unique_paces.size() < 8:
 		fail("Crowd walking pace has lost its per-resident variety", 72)
 		return
+	# AI traffic is staggered rather than running at exactly one convoy pace.
+	var observed_cruise: Dictionary = {}
+	for traffic_car in city.cars:
+		if traffic_car.npc_speed < 8.2 or traffic_car.npc_speed > 14.0:
+			fail("Road AI cruise speed outside expected safe range", 73)
+			return
+		observed_cruise[roundi(traffic_car.npc_speed * 10.0)] = true
+	if observed_cruise.size() < 6:
+		fail("Traffic has lost its per-vehicle cruising variety", 74)
+		return
+	var sensor_car: PocketVehicle = city.cars[0]
+	sensor_car.occupied = true
+	if absf(sensor_car.nearest_forward_obstacle() - 13.0) > 0.01:
+		fail("Driven vehicle is incorrectly using pedestrian following sensor", 75)
+		return
+	sensor_car.occupied = false
 	var first: PocketActor = city.people[0]
 	var spawned: Vector3 = first.global_position
 	for frame in range(160):
