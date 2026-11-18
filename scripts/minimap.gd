@@ -62,7 +62,9 @@ func _draw() -> void:
 		if not Rect2(Vector2.ZERO, size).has_point(point):
 			continue
 		var business: String = String(building.get("business", ""))
-		if business == "gun":
+		if business == "garage":
+			draw_circle(point, 4.6, Color("#56ecd8"))
+		elif business == "gun":
 			draw_circle(point, 4, Color("#f1c780"))
 		elif business == "apartment":
 			var purchased: bool = game.purchased_homes.has(String(building["id"]))
