@@ -814,9 +814,10 @@ func advance_delivery() -> void:
 		mission_point = sites[mission_last_index]
 		var starting := car_driven.global_position if car_driven != null else hero.global_position
 		var distance := starting.distance_to(mission_point)
-		mission_limit = GameData.mission_time(distance)
-		mission_reward = GameData.mission_reward(distance, mini(5, int(deliveries / 3)))
-		show_message("DELIVERY STARTED  |  $%d REWARD" % mission_reward)
+		var contract: Dictionary = GameData.delivery_contract(deliveries)
+		mission_limit = maxf(35.0, GameData.mission_time(distance) * float(contract["time_scale"]))
+		mission_reward = maxi(125, roundi(float(GameData.mission_reward(distance, mini(5, int(deliveries / 3)))) * float(contract["reward_scale"])))
+		show_message("%s  |  $%d REWARD" % [String(contract["title"]), mission_reward])
 	else:
 		mission_stage = 0
 		deliveries += 1
