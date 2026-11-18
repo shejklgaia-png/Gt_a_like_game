@@ -93,6 +93,13 @@ func _draw() -> void:
 			var job_point: Vector2 = to_map(game.neighborhood_jobs.objective_position(), focus)
 			job_point = job_point.clamp(Vector2(6, 6), size - Vector2(6, 6))
 			draw_circle(job_point, 5.0, Color("#74f3c9"))
+	# Conversation-accepted activities are distinct from generic jobs and
+	# courier parcels, so their gold marker remains visible in parallel.
+	if is_instance_valid(game.conversation_activities) and game.conversation_activities.active:
+		var activity_spot: Vector2 = to_map(game.conversation_activities.objective_position(), focus)
+		if Rect2(Vector2.ZERO, size).has_point(activity_spot):
+			draw_arc(activity_spot, 6.4, 0.0, TAU, 16, Color("#ffdc97"), 2.0)
+			draw_circle(activity_spot, 3.8, Color("#ffaa70"))
 	if is_instance_valid(game.garage_car):
 		var owned_point: Vector2 = to_map(game.garage_car.global_position, focus)
 		if Rect2(Vector2.ZERO, size).has_point(owned_point):
