@@ -195,6 +195,50 @@ func run_smoke() -> void:
 		push_error("Waypoint arrow does not align with screen up")
 		quit(75)
 		return
+	# Contract variety, first-session clarity and clean-play bonuses.
+	var contract_types := load("res://scripts/gameplay_data.gd")
+	var seen_contracts: Dictionary = {}
+	for job in range(8):
+		var contract: Dictionary = contract_types.delivery_contract(job)
+		if not contract.has("title") or float(contract["reward_scale"]) <= 0.0 or float(contract["time_scale"]) <= 0.0:
+			push_error("Invalid courier contract metadata")
+			quit(76)
+			return
+		seen_contracts[String(contract["title"])] = true
+	if seen_contracts.size() != 4:
+		push_error("Rotating courier contract variety regressed")
+		quit(77)
+		return
+	game.update_hud()
+	if not game.mission_label.text.contains("LOCAL COURIER"):
+		push_error("First job HUD did not identify current courier contract")
+		quit(78)
+		return
+	var previous_cash: int = game.cash
+	var contracted_reward: int = game.mission_reward
+	game.wanted = 0
+	game.advance_delivery()
+	var expected_clean_payout := contracted_reward + roundi(float(contracted_reward) * 0.20)
+	if game.cash - previous_cash != expected_clean_payout or game.deliveries != 1:
+		push_error("Clean courier reward was not fully credited")
+		quit(79)
+		return
+	game.advance_delivery()
+	game.update_hud()
+	if not game.mission_label.text.contains("EXPRESS RUN") or game.mission_stage != 1:
+		push_error("The next courier contract was not offered")
+		quit(80)
+		return
+	# Test that a parcel directly at a storefront door has priority.
+	var test_door: Dictionary = town.buildings[0]
+	game.mission_stage = 0
+	game.mission_point = test_door["door"]
+	hero.global_position = game.mission_point
+	game.interaction()
+	if game.indoors or game.mission_stage != 1:
+		push_error("Door interaction hijacked a parcel directly underfoot")
+		quit(81)
+		return
 	# The 2,000 configurations contain no stock dialogue joins: spoken text
 	# must be made solely from a topic's individually authored paragraphs.
 	var dialogue_library = load("res://scripts/resident_dialogue.gd")
