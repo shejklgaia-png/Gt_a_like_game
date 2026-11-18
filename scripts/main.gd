@@ -964,6 +964,8 @@ func load_game() -> void:
 	garage_saved_yaw = float(decoded.get("garage_yaw", PI * 0.5))
 	var saved_jobs = decoded.get("neighborhood_jobs", {})
 	neighborhood_job_state = saved_jobs.duplicate(true) if saved_jobs is Dictionary else {}
+	if is_instance_valid(neighborhood_jobs):
+		neighborhood_jobs.restore(neighborhood_job_state)
 	var saved_street_finds = decoded.get("street_finds", {})
 	street_find_records = saved_street_finds.duplicate(true) if saved_street_finds is Dictionary else {}
 	if is_instance_valid(street_finds):
@@ -1189,7 +1191,7 @@ func update_hud() -> void:
 		caption = "ACTION: COLLECT PARCEL" if mission_stage == 0 else "ACTION: DELIVER PARCEL"
 	elif nearby_resident != null and (nearby_door.is_empty() or hero.global_position.distance_to(nearby_door["door"]) > 1.6):
 		var profile: Dictionary = ResidentDialogue.make_profile(nearby_resident.resident_id)
-		caption = "ACTION: 話す - %s" % String(profile["name"])
+		caption = "ACTION: 話す - %s / %s" % [String(profile["name"]), nearby_resident.daily_role]
 	elif not nearby_door.is_empty():
 		caption = "ACTION: GUN SHOP" if bool(nearby_door["shop"]) else ("ACTION: %s" % String(nearby_door.get("business", "ENTER")).to_upper())
 	elif closest_usable_car(hero.global_position) != null:
