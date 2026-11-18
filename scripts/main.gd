@@ -294,8 +294,15 @@ func quest_event(event_name: String, details: Dictionary = {}) -> void:
 
 func on_quest_started(quest: Dictionary) -> void:
 	var title := String(quest.get("title", ""))
-	show_message("新しい出来事：" + title + "  |  CITY→依頼")
-	display_message_time = 9.0
+	if String(quest.get("trigger", "")) == "npc_call":
+		var giver_id: int = int(quest.get("record", {}).get("giver", -1))
+		var speaker: String = String(ResidentDialogue.make_profile(giver_id)["name"]) if giver_id >= 0 else "街の住民"
+		# Use this quest's unique authored premise, not a stock NPC line.
+		show_message("%s：%s" % [speaker, String(quest.get("hook", title))])
+		display_message_time = 12.0
+	else:
+		show_message("新しい出来事：" + title + "  |  CITY→依頼")
+		display_message_time = 9.0
 	# Do not override a route the player explicitly selected.
 	if navigation_kind == "":
 		var record: Dictionary = quest.get("record", {})
@@ -336,6 +343,13 @@ func quest_waypoint(quest_id: String) -> Dictionary:
 		return {}
 	for quest in quest_director.active:
 		if String(quest.get("id", "")) == quest_id:
+			var stage: Dictionary = quest_director.stage_for(quest)
+			if String(stage.get("event", "")) == "police_contact" and is_instance_valid(quest_incidents) and is_instance_valid(quest_incidents.patrol):
+				return {"point": quest_incidents.patrol.global_position, "label": "巡回警官と話す"}
+			if String(stage.get("event", "")) == "furniture_placed" and not purchased_homes.is_empty():
+				for lot in city.buildings:
+					if purchased_homes.has(String(lot["id"])):
+						return {"point": lot["door"], "label": "購入済みの住居で家具を配置"}
 			return quest_director.waypoint(
 				quest, current_travel_position(), garage_car,
 				neighborhood_jobs.board_position if is_instance_valid(neighborhood_jobs) else Vector3.ZERO,
@@ -848,8 +862,10 @@ func interaction() -> void:
 	if is_instance_valid(quest_incidents) and wanted == 0:
 		var patrol: PocketActor = quest_incidents.nearest_officer(hero.global_position)
 		if is_instance_valid(patrol):
+			var active_before := quest_director.active.size()
 			quest_event("police_contact")
-			show_message("巡回警官：街の情報を確認しました")
+			if quest_director.active.size() == active_before:
+				show_message("巡回警官：街の情報を確認しました")
 			return
 	# Social introductions require a real conversation with the designated
 	# citizen. Give that NPC priority over adjacent storefronts and caches.
