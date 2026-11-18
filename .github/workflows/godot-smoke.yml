@@ -61,3 +61,11 @@ jobs:
             echo "GDScript error detected during CITY route test"
             exit 1
           fi
+      - name: Validate crosswalk-safe walking routes and real garage ACTION entry
+        run: |
+          set -o pipefail
+          godot --headless --path . --script res://scripts/sidewalk_route_test.gd 2>&1 | tee /tmp/pocket_sidewalk_route.log
+          if grep -E 'SCRIPT ERROR:|Parse Error:' /tmp/pocket_sidewalk_route.log; then
+            echo "GDScript error detected during crossing/garage integration test"
+            exit 1
+          fi
