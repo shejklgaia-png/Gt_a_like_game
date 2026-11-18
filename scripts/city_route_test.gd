@@ -112,7 +112,11 @@ func run_checks() -> void:
 		return
 	var gps_before: String = game.navigation_label
 	game.save_game()
-	game.clear_city_waypoint()
+	# Simulate volatile memory loss only: clear_city_waypoint() correctly
+	# *saves* a blank GPS and is not a valid way to test restoring a route.
+	game.navigation_kind = ""
+	game.navigation_label = ""
+	route.clear()
 	game.load_game()
 	if game.navigation_label != gps_before or game.navigation_kind != "lot":
 		fail("GPS state no longer compatible with loading existing saves", 317)
