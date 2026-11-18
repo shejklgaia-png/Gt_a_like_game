@@ -5,6 +5,7 @@ class_name PocketCityPhone
 
 const Districts = preload("res://scripts/district_data.gd")
 const Dialogue = preload("res://scripts/resident_dialogue.gd")
+const GameData = preload("res://scripts/gameplay_data.gd")
 
 var game: Node3D
 var page: String = "仕事"
@@ -192,7 +193,7 @@ func closest_lot(business: String, owned_only: bool = false, unowned_only: bool 
 
 func fill_jobs() -> void:
 	note("仕事は現地でACTIONを押して開始・進行します。\n配達中も別の地域ジョブを選べます。")
-	var contract: Dictionary = game.GameData.delivery_contract(game.deliveries)
+	var contract: Dictionary = GameData.delivery_contract(game.deliveries)
 	var label := "配達  #%d  %s" % [game.deliveries + 1, String(contract["title"])]
 	var status := "荷物の届け先（制限時間あり）" if game.mission_stage == 1 else "荷物を受け取る（初期ジョブ）"
 	destination(label, status, "delivery", "", game.mission_point, Color("#645538"))
@@ -287,7 +288,7 @@ func fill_discoveries() -> void:
 		destination("近くの住民：%s" % String(profile["name"]), "近づいてACTION → 会話", "resident", str(closest_person.resident_id), closest_person.global_position)
 	note("探索品：%d/%d   装備：%s   収入：$%d" % [
 		game.street_finds.count_collected(), game.street_finds.total_count(),
-		", ".join(game.owned_weapons), game.total_earnings
+		str(game.owned_weapons.size()) + "種", game.total_earnings
 	])
 	var settings := make_button("表示・カメラ・サウンド設定を開く", Color("#495368"), 16)
 	settings.custom_minimum_size.y = 58
