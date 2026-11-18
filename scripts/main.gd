@@ -1253,16 +1253,16 @@ func update_hud() -> void:
 		var destination: Vector3 = city_waypoint_point()
 		var short_name := navigation_label.substr(0, 20)
 		if indoors:
-			navigation_banner.text = "GPS %s  |  外へ出て案内再開" % short_name
+			navigation_banner.text = "GPS: %s  |  外へ出て案内再開" % short_name
 		elif city_route.is_arrived(current_position, destination):
-			navigation_banner.text = "GPS %s  |  到着・ACTIONで利用" % short_name
+			navigation_banner.text = "GPS: %s  |  到着・ACTIONで利用" % short_name
 		else:
 			# Steering follows the next open A* cell rather than pointing
 			# through building meshes directly at the destination.
 			city_route.refresh(current_position, destination)
 			var next_point: Vector3 = city_route.next_guidance_point(current_position, destination)
 			var along: int = roundi(city_route.remaining_distance(current_position, destination))
-			navigation_banner.text = "GPS %s  次%s  約%dm" % [short_name, waypoint_arrow(next_point - current_position), along]
+			navigation_banner.text = "GPS: %s  次%s  約%dm" % [short_name, waypoint_arrow(next_point - current_position), along]
 		navigation_banner.add_theme_color_override("font_color", Color("#9cf7dc"))
 	else:
 		navigation_banner.text = "CITY で仕事・施設を探す"
