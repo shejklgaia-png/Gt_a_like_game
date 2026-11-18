@@ -821,10 +821,16 @@ func advance_delivery() -> void:
 	else:
 		mission_stage = 0
 		deliveries += 1
-		cash += mission_reward
-		total_earnings += mission_reward
+		# Reward non-violent play without penalizing free-roam or police chases.
+		var clean_bonus: int = roundi(float(mission_reward) * 0.20) if wanted == 0 else 0
+		var payout: int = mission_reward + clean_bonus
+		cash += payout
+		total_earnings += payout
 		sound.play_ui("cash")
-		show_message("DELIVERED +$%d" % mission_reward)
+		if clean_bonus > 0:
+			show_message("DELIVERED +$%d  |  CLEAN BONUS +$%d" % [payout, clean_bonus])
+		else:
+			show_message("DELIVERED +$%d" % payout)
 		mission_limit = 0.0
 		mission_point = GameData.delivery_sites()[7]
 		save_game()
