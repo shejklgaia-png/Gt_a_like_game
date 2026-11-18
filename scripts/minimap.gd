@@ -109,5 +109,14 @@ func _draw() -> void:
 	var marker := to_map(waypoint, focus)
 	marker = marker.clamp(Vector2(7, 7), size - Vector2(7, 7))
 	draw_circle(marker, 5.0, Color("#ffd46a"))
+	# The manually selected CITY GPS stands out even when the destination is
+	# far outside this compact minimap. An edge-clamped ray gives direction.
+	if game.navigation_kind != "":
+		var city_destination: Vector3 = game.city_waypoint_point()
+		var raw_point: Vector2 = to_map(city_destination, focus)
+		var city_point := raw_point.clamp(Vector2(9, 9), size - Vector2(9, 9))
+		draw_line(size * 0.5, city_point, Color("#54e4cb"), 2.2, true)
+		draw_arc(city_point, 7.3, 0.0, TAU, 16, Color("#d9fff2"), 2.0)
+		draw_circle(city_point, 4.5, Color("#3ad8c2"))
 	draw_circle(size * 0.5, 5.0, Color("#71fff1"))
 	draw_line(size * 0.5, size * 0.5 - Vector2(sin(game.camera_yaw), cos(game.camera_yaw)) * 11, Color("#e2fffd"), 2.0)

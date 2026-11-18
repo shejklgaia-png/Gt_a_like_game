@@ -17,6 +17,7 @@ const Furniture = preload("res://scripts/furniture_catalog.gd")
 const StreetFinds = preload("res://scripts/street_finds.gd")
 const GarageVehicleScript = preload("res://scripts/vehicle.gd")
 const NeighborhoodJobsScript = preload("res://scripts/neighborhood_jobs.gd")
+const CityPhoneScript = preload("res://scripts/city_phone.gd")
 
 var WEAPONS: Array[Dictionary] = GameData.weapons()
 const SAVE_PATH := "user://pocket_district_save.json"
@@ -58,6 +59,10 @@ var mission_stage: int = 0
 var mission_point := Vector3.ZERO
 var mission_marker: Node3D
 var mission_marker_label: Label3D
+var navigation_kind: String = ""
+var navigation_id: String = ""
+var navigation_label: String = ""
+var navigation_position: Vector3 = Vector3.ZERO
 var street_finds: PocketStreetFinds
 var street_find_records: Dictionary = {}
 var neighborhood_jobs: PocketNeighborhoodJobs
@@ -89,6 +94,9 @@ var total_earnings: int = 0
 var mission_last_index: int = 0
 var zoom_enabled: bool = false
 var pause_button: Button
+var city_phone_button: Button
+var city_phone: PocketCityPhone
+var navigation_banner: Label
 var reload_button: Button
 var aim_button: Button
 var settings_panel: Panel
@@ -934,6 +942,71 @@ func advance_delivery() -> void:
 	save_game()
 
 
+func current_travel_position() -> Vector3:
+	return car_driven.global_position if is_instance_valid(car_driven) else hero.global_position
+
+
+func set_city_waypoint(kind: String, key: String, title: String, point: Vector3) -> void:
+	# The phone sets a route, not fast travel or remote shopping.
+	if not kind in ["delivery", "side_job", "job_board", "lot", "owned_car", "cache", "resident"]:
+		return
+	navigation_kind = kind
+	navigation_id = key
+	navigation_label = title.substr(0, 60)
+	navigation_position = point
+	show_message("GPS SET: " + navigation_label)
+	save_game()
+
+
+func clear_city_waypoint() -> void:
+	navigation_kind = ""
+	navigation_id = ""
+	navigation_label = ""
+	navigation_position = Vector3.ZERO
+	show_message("GPS CLEARED")
+	save_game()
+
+
+func city_waypoint_point() -> Vector3:
+	# Moving destinations update without forcing the player to reopen the phone.
+	match navigation_kind:
+		"delivery":
+			return mission_point
+		"side_job":
+			if is_instance_valid(neighborhood_jobs):
+				return neighborhood_jobs.objective_position()
+		"job_board":
+			if is_instance_valid(neighborhood_jobs):
+				return neighborhood_jobs.board_position
+		"owned_car":
+			if is_instance_valid(garage_car):
+				return garage_car.global_position
+		"resident":
+			if navigation_id.is_valid_int():
+				var index := int(navigation_id)
+				if index >= 0 and index < city.people.size() and is_instance_valid(city.people[index]):
+					return city.people[index].global_position
+		"lot":
+			for lot in city.buildings:
+				if String(lot.get("id", "")) == navigation_id and lot.has("door"):
+					return lot["door"]
+		"cache":
+			if is_instance_valid(street_finds):
+				for index in range(street_finds.site_ids.size()):
+					if street_finds.site_ids[index] == navigation_id:
+						return street_finds.site_positions[index]
+	return navigation_position
+
+
+func toggle_city_phone() -> void:
+	if city_phone == null:
+		return
+	if city_phone.visible:
+		city_phone.close_phone()
+	elif not settings_panel.visible and not shop_panel.visible and not commerce_panel.visible and not dialogue_panel.visible:
+		city_phone.open_phone()
+
+
 func show_message(message: String) -> void:
 	display_message = message
 	display_message_time = 2.6
@@ -962,6 +1035,17 @@ func load_game() -> void:
 		if absf(saved_point.x) < 170.0 and absf(saved_point.z) < 170.0 and saved_point.y > -2.0 and saved_point.y < 14.0:
 			garage_saved_position = saved_point
 	garage_saved_yaw = float(decoded.get("garage_yaw", PI * 0.5))
+	navigation_kind = String(decoded.get("nav_kind", ""))
+	if not navigation_kind in ["delivery", "side_job", "job_board", "lot", "owned_car", "cache", "resident"]:
+		navigation_kind = ""
+	navigation_id = String(decoded.get("nav_id", "")).substr(0, 80)
+	navigation_label = String(decoded.get("nav_label", "")).substr(0, 60) if navigation_kind != "" else ""
+	navigation_position = Vector3.ZERO
+	var saved_nav = decoded.get("nav_position", [])
+	if saved_nav is Array and saved_nav.size() == 3:
+		var nav := Vector3(float(saved_nav[0]), float(saved_nav[1]), float(saved_nav[2]))
+		if nav.is_finite() and absf(nav.x) < 180.0 and absf(nav.z) < 180.0 and nav.y > -2.0 and nav.y < 15.0:
+			navigation_position = nav
 	var saved_jobs = decoded.get("neighborhood_jobs", {})
 	neighborhood_job_state = saved_jobs.duplicate(true) if saved_jobs is Dictionary else {}
 	if is_instance_valid(neighborhood_jobs):
@@ -1029,6 +1113,10 @@ func save_game() -> void:
 		"mission_index": mission_last_index,
 		"mission_limit": mission_limit,
 		"mission_reward": mission_reward,
+		"nav_kind": navigation_kind,
+		"nav_id": navigation_id,
+		"nav_label": navigation_label,
+		"nav_position": [navigation_position.x, navigation_position.y, navigation_position.z],
 		"garage_owned": garage_owned,
 		"garage_position": [garage_car.global_position.x, garage_car.global_position.y, garage_car.global_position.z] if is_instance_valid(garage_car) else [],
 		"garage_yaw": garage_car.rotation.y if is_instance_valid(garage_car) else garage_saved_yaw,
@@ -1052,6 +1140,10 @@ func save_game() -> void:
 		push_warning("Save could not be written; last good backup was kept.")
 
 func _input(event: InputEvent) -> void:
+	if city_phone != null and city_phone.visible:
+		if event is InputEventKey and event.pressed and not event.echo and event.keycode in [KEY_ESCAPE, KEY_E, KEY_B]:
+			city_phone.close_phone()
+		return
 	if commerce_panel != null and commerce_panel.visible:
 		if event is InputEventKey and event.pressed and not event.echo and event.keycode in [KEY_ESCAPE, KEY_E, KEY_F]:
 			close_commerce()
@@ -1076,6 +1168,8 @@ func _input(event: InputEvent) -> void:
 			minimap.visible = not minimap.visible
 		elif event.keycode == KEY_P:
 			toggle_settings()
+		elif event.keycode == KEY_B:
+			toggle_city_phone()
 	if event is InputEventScreenTouch:
 		if event.pressed and not on_action_button(event.position) and not shop_panel.visible and (commerce_panel == null or not commerce_panel.visible):
 			if stick_pointer == -1 and (event.position - stick_center).length() < 145.0:
@@ -1112,7 +1206,7 @@ func _input(event: InputEvent) -> void:
 
 
 func on_action_button(point: Vector2) -> bool:
-	for button in [fire_button, action_button, run_button, weapon_button, reload_button, aim_button, pause_button]:
+	for button in [fire_button, action_button, run_button, weapon_button, reload_button, aim_button, pause_button, city_phone_button]:
 		if button != null and button.get_global_rect().has_point(point):
 			return true
 	return false
@@ -1142,6 +1236,14 @@ func update_hud() -> void:
 	var objective := "PICK UP" if mission_stage == 0 else ("DROP OFF %.0fs" % maxf(0.0, mission_limit))
 	mission_label.text = "#%d %s  %s %dm  •  %s" % [deliveries + 1, String(contract["title"]), heading, roundi(ground_distance), objective]
 	mission_label.add_theme_color_override("font_color", Color("#ff8585") if mission_stage == 1 and mission_limit <= 15.0 else Color("#f5d58c"))
+	if navigation_kind != "":
+		var nav_delta: Vector3 = city_waypoint_point() - current_position
+		var nav_dist: int = roundi(Vector2(nav_delta.x, nav_delta.z).length())
+		navigation_banner.text = "GPS: %s  %s %dm" % [navigation_label, waypoint_arrow(nav_delta), nav_dist]
+		navigation_banner.add_theme_color_override("font_color", Color("#9cf7dc"))
+	else:
+		navigation_banner.text = "CITY で仕事・施設を探す"
+		navigation_banner.add_theme_color_override("font_color", Color("#b7d2db"))
 	var aim_dir := -camera.global_transform.basis.z
 	aim_dir.y = 0.0
 	aim_dir = aim_dir.normalized()
@@ -1238,6 +1340,8 @@ func setup_ui() -> void:
 	ui.add_child(status_label)
 	mission_label = make_label(18, Color("#f5d58c"))
 	ui.add_child(mission_label)
+	navigation_banner = make_label(16, Color("#9cf7dc"))
+	ui.add_child(navigation_banner)
 	weapon_label = make_label(20, Color("#d6edee"))
 	ui.add_child(weapon_label)
 	crosshair_label = make_label(32, Color("#d6fff1"))
@@ -1268,6 +1372,7 @@ func setup_ui() -> void:
 	reload_button = make_button("RELOAD", Color("#4e696e"))
 	aim_button = make_button("SCOPE", Color("#52636f"))
 	pause_button = make_button("II", Color("#3c5365"))
+	city_phone_button = make_button("CITY", Color("#286c74"))
 	fire_button.button_down.connect(func() -> void: fire_held = true)
 	fire_button.button_up.connect(func() -> void: fire_held = false)
 	action_button.pressed.connect(interaction)
@@ -1276,7 +1381,8 @@ func setup_ui() -> void:
 	reload_button.pressed.connect(reload_gun)
 	aim_button.pressed.connect(toggle_scope)
 	pause_button.pressed.connect(toggle_settings)
-	for button in [fire_button, action_button, run_button, weapon_button, reload_button, aim_button, pause_button]:
+	city_phone_button.pressed.connect(toggle_city_phone)
+	for button in [fire_button, action_button, run_button, weapon_button, reload_button, aim_button, pause_button, city_phone_button]:
 		ui.add_child(button)
 	minimap = MapScript.new()
 	minimap.game = self
@@ -1287,6 +1393,9 @@ func setup_ui() -> void:
 	create_commerce_ui()
 	create_settings_ui()
 	create_dialogue_ui()
+	city_phone = CityPhoneScript.new()
+	city_phone.game = self
+	ui.add_child(city_phone)
 
 
 func style(background: Color, radius: int) -> StyleBoxFlat:
@@ -1927,7 +2036,9 @@ func layout_ui() -> void:
 	weapon_label.position = Vector2(24, 61)
 	weapon_label.size = Vector2(screen.x - 36, 32)
 	mission_label.position = Vector2(20, 121)
-	mission_label.size = Vector2(screen.x - 102, 35)
+	mission_label.size = Vector2(screen.x - 180, 35)
+	navigation_banner.position = Vector2(120, 160)
+	navigation_banner.size = Vector2(maxf(120.0, screen.x - 132.0), 32)
 	hint_label.position = Vector2(10, screen.y - 75)
 	hint_label.size = Vector2(screen.x - 20, 55)
 	stick_center = Vector2(screen.x * 0.73, screen.y - 115)
@@ -1958,6 +2069,8 @@ func layout_ui() -> void:
 		camera.fov = 69.0
 	pause_button.position = Vector2(screen.x - 70, 116)
 	pause_button.size = Vector2(57, 43)
+	city_phone_button.position = Vector2(screen.x - 145, 116)
+	city_phone_button.size = Vector2(69, 43)
 	minimap.position = Vector2(14, 158)
 	minimap.size = Vector2(minf(94, screen.x * 0.26), minf(94, screen.x * 0.26))
 	perf_overlay.position = Vector2(15, 145)
@@ -1972,3 +2085,6 @@ func layout_ui() -> void:
 	if dialogue_panel != null:
 		dialogue_panel.size = Vector2(minf(screen.x - 22.0, 560.0), minf(screen.y - 32.0, 540.0))
 		dialogue_panel.position = (screen - dialogue_panel.size) * 0.5
+	if city_phone != null:
+		city_phone.size = Vector2(minf(screen.x - 22.0, 620.0), minf(screen.y - 30.0, 690.0))
+		city_phone.position = (screen - city_phone.size) * 0.5
