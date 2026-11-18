@@ -400,6 +400,7 @@ func _physics_process(delta: float) -> void:
 func _process(delta: float) -> void:
 	if hero == null:
 		return
+	update_quest_world(delta)
 	if mobile_optimization_enabled and not indoors:
 		mobile_lod_clock += delta
 		if mobile_lod_clock >= 0.6:
@@ -431,6 +432,7 @@ func _process(delta: float) -> void:
 			wanted_idle = 0.0
 			if wanted == 0:
 				wanted_cleanup_clock = 0.0
+				quest_event("wanted_cleared")
 	elif wanted == 0:
 		wanted_cleanup_clock += delta
 		if wanted_cleanup_clock > 2.0:
@@ -459,6 +461,49 @@ func _process(delta: float) -> void:
 	if hud_update_clock > 0.11:
 		hud_update_clock = 0.0
 		update_hud()
+
+func update_quest_world(delta: float) -> void:
+	if not is_instance_valid(quest_director) or indoors or hero.dead:
+		return
+	if is_instance_valid(car_driven):
+		var distance := maxf(0.0, car_driven.total_driven - quest_last_driven)
+		quest_last_driven = car_driven.total_driven
+		if distance > 0.005:
+			quest_driving_start_meter += distance
+			var start_ready := quest_driving_start_meter >= 45.0
+			if start_ready:
+				quest_driving_start_meter = 0.0
+			quest_event("driving", {"amount": distance, "ready": start_ready})
+	else:
+		quest_last_driven = 0.0
+		quest_driving_start_meter = 0.0
+	quest_scan_clock += delta
+	if quest_scan_clock < 0.8:
+		return
+	quest_scan_clock = 0.0
+	var player_at: Vector3 = current_travel_position()
+	if is_instance_valid(car_driven):
+		quest_nearby_npc_id = -1
+	else:
+		var candidate: PocketActor = city.closest_resident(player_at, 4.2)
+		var candidate_id: int = candidate.resident_id if is_instance_valid(candidate) else -1
+		if candidate_id >= 0 and candidate_id != quest_nearby_npc_id:
+			quest_event("npc_call", {"resident_id": candidate_id, "role": candidate.daily_role})
+		quest_nearby_npc_id = candidate_id
+	var nearest := INF
+	var district := ""
+	for lot in city.buildings:
+		var entrance: Vector3 = lot["door"]
+		var difference := Vector2(player_at.x - entrance.x, player_at.z - entrance.z).length_squared()
+		if difference < nearest:
+			nearest = difference
+			district = String(lot["district"])
+	if nearest > 1600.0:
+		district = ""
+	if not district.is_empty() and district != quest_nearby_district:
+		quest_event("district_visit", {"district": district})
+	quest_nearby_district = district
+
 
 func read_motion() -> Vector2:
 	var vector := stick_value
@@ -652,6 +697,7 @@ func finish_reload() -> void:
 	reload_weapon_id = ""
 
 func on_hero_damaged(points: float) -> void:
+	quest_event("hero_damaged", {"amount": points})
 	if dialogue_panel != null and dialogue_panel.visible:
 		end_conversation()
 	sound.play("hurt", hero.global_position, -8.0)
@@ -704,8 +750,11 @@ func on_actor_died(actor: PocketActor) -> void:
 
 
 func add_wanted(levels: int) -> void:
+	var previous := wanted
 	wanted = clampi(wanted + levels, 0, 5)
 	wanted_idle = 0.0
+	if wanted > previous:
+		quest_event("wanted_raised", {"level": wanted})
 
 
 func busted() -> void:
@@ -786,6 +835,13 @@ func interaction() -> void:
 	if car_driven != null:
 		exit_car()
 		return
+	# Officer contact is a real ACTION event, not a proximity guess.
+	if is_instance_valid(quest_incidents) and wanted == 0:
+		var patrol: PocketActor = quest_incidents.nearest_officer(hero.global_position)
+		if is_instance_valid(patrol):
+			quest_event("police_contact")
+			show_message("巡回警官：街の情報を確認しました")
+			return
 	# Social introductions require a real conversation with the designated
 	# citizen. Give that NPC priority over adjacent storefronts and caches.
 	if is_instance_valid(conversation_activities) and conversation_activities.active and conversation_activities.kind == "meet":
