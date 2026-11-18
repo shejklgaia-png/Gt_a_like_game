@@ -1040,6 +1040,11 @@ func update_hud() -> void:
 	if not indoors and car_driven == null and wanted == 0:
 		nearby_resident = city.closest_resident(hero.global_position)
 	var caption := "MOVE: PAD  •  CAMERA: SWIPE SCENE  •  ACTION"
+	# Introduce the first achievable goal without a modal tutorial.
+	if deliveries == 0 and mission_stage == 0:
+		caption = "FIRST JOB: FOLLOW GOLD PARCEL • PRESS ACTION"
+	elif deliveries == 0 and mission_stage == 1:
+		caption = "FIRST JOB: FOLLOW ARROW • DELIVER BEFORE TIME RUNS OUT"
 	if hero.dead:
 		caption = "WASTED  •  RESPAWNING"
 	elif carjack_busy:
