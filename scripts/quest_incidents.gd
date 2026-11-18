@@ -54,7 +54,7 @@ func _process(delta: float) -> void:
 		var selected := -1
 		for step in range(SITES.size()):
 			var index := posmod(site_index + step, SITES.size())
-			var distance := game.hero.global_position.distance_to(SITES[index])
+			var distance: float = game.hero.global_position.distance_to(SITES[index])
 			if distance < best:
 				best = distance
 				selected = index
