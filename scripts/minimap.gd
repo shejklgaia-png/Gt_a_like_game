@@ -50,6 +50,10 @@ func _draw() -> void:
 				draw_line(previous, point, Color("#647583"), 3)
 			previous = point
 	for building in game.city.buildings:
+		# A partially rebuilt/tearing-down district can contain a temporary
+		# incomplete lot: never crash the HUD drawing pass over absent keys.
+		if not building.has("door") or not building.has("position"):
+			continue
 		if bool(building.get("alley", false)):
 			var lot_center: Vector3 = building["block_center"]
 			draw_line(to_map(lot_center + Vector3(8.4, 0, -17), focus), to_map(lot_center + Vector3(8.4, 0, 17), focus), Color("#8b9da0"), 2)
@@ -67,6 +71,15 @@ func _draw() -> void:
 			draw_circle(point, 3.5, Color("#ffe1a2"))
 		elif business in ["lounge", "club"]:
 			draw_circle(point, 3.5, Color("#dca1ed"))
+	# Unclaimed cache discovery points are legible without changing NPC traffic.
+	if is_instance_valid(game.street_finds):
+		for cache_index in range(game.street_finds.total_count()):
+			if game.street_finds.collected.has(game.street_finds.site_ids[cache_index]):
+				continue
+			var spot: Vector2 = to_map(game.street_finds.site_positions[cache_index], focus)
+			if Rect2(Vector2.ZERO, size).has_point(spot):
+				draw_circle(spot, 3.2, Color("#f5d78c"))
+				draw_arc(spot, 5.1, 0.0, TAU, 10, Color("#314e5a"), 1.5)
 	for car in game.city.cars:
 		if is_instance_valid(car):
 			var point := to_map(car.global_position, focus)

@@ -35,3 +35,5 @@ jobs:
         run: godot --headless --path . --script res://scripts/android_runtime_test.gd
       - name: Run sustained-play and autosave stability regression
         run: godot --headless --path . --script res://scripts/stability_test.gd
+      - name: Exercise one hundred deterministic open-world QA cycles
+        run: godot --headless --path . --script res://scripts/hundred_cycle_test.gd

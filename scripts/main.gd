@@ -14,6 +14,7 @@ const ResidentDialogue = preload("res://scripts/resident_dialogue.gd")
 const SessionDiagnostics = preload("res://scripts/session_diagnostics.gd")
 const Stores = preload("res://scripts/store_catalog.gd")
 const Furniture = preload("res://scripts/furniture_catalog.gd")
+const StreetFinds = preload("res://scripts/street_finds.gd")
 
 var WEAPONS: Array[Dictionary] = GameData.weapons()
 const SAVE_PATH := "user://pocket_district_save.json"
@@ -50,6 +51,8 @@ var mission_stage: int = 0
 var mission_point := Vector3.ZERO
 var mission_marker: Node3D
 var mission_marker_label: Label3D
+var street_finds: PocketStreetFinds
+var street_find_records: Dictionary = {}
 var deliveries: int = 0
 var autosave_clock: float = 0.0
 var camera_yaw: float = 0.0
@@ -139,6 +142,9 @@ func _ready() -> void:
 	city.name = "OutdoorWorld"
 	add_child(city)
 	city.build_city()
+	street_finds = StreetFinds.new()
+	street_finds.name = "StreetFinds"
+	city.add_child(street_finds)
 	interior = InteriorScript.new()
 	interior.name = "IndoorWorld"
 	interior.visible = false
@@ -160,6 +166,7 @@ func _ready() -> void:
 	for person in city.people:
 		connect_actor(person)
 	load_game()
+	street_finds.setup(city.buildings, street_find_records)
 	apply_outfit()
 	if mobile_optimization_enabled:
 		city.update_mobile_activity(hero.global_position)
@@ -638,6 +645,18 @@ func interaction() -> void:
 	if car_driven != null:
 		exit_car()
 		return
+	# Optional city discoveries reward exploring back streets.
+	var nearby_cache: int = street_finds.nearest(hero.global_position)
+	if nearby_cache >= 0:
+		var found_reward := street_finds.collect(nearby_cache)
+		if found_reward > 0:
+			street_find_records = street_finds.collected.duplicate()
+			cash += found_reward
+			total_earnings += found_reward
+			sound.play_ui("cash")
+			show_message("STREET FIND +$%d  (%d/%d)" % [found_reward, street_finds.count_collected(), street_finds.total_count()])
+			save_game()
+		return
 	# A parcel almost underfoot should not be stolen by the proximity
 	# radius of an adjacent building entrance, parked car, or resident.
 	if hero.global_position.distance_to(mission_point) <= 2.8:
@@ -676,7 +695,8 @@ func enter_car(car: PocketVehicle) -> void:
 	var destination := car.entrance_point()
 	hero.face_direction(-car.global_transform.basis.x, 1.0)
 	var tween := create_tween()
-	tween.tween_property(hero, "global_position", Vector3(destination.x, 0.35, destination.z), 0.42).set_trans(Tween.TRANS_SINE)
+	# Car height follows its road deck, including 7 m elevated expressway.
+	tween.tween_property(hero, "global_position", Vector3(destination.x, maxf(0.24, destination.y - 0.65), destination.z), 0.42).set_trans(Tween.TRANS_SINE)
 	tween.tween_interval(0.36)
 	tween.tween_callback(func() -> void:
 		if not is_instance_valid(car) or not is_instance_valid(hero):
@@ -718,22 +738,33 @@ func exit_car() -> void:
 	var leave_at := Vector3.ZERO
 	var valid := false
 	for option in options:
+		# Probe the local road deck; exits on elevated ramps must not teleport
+		# the player to global ground at y=0. Only accept near-level surfaces.
+		var ground_probe := PhysicsRayQueryParameters3D.create(
+			option + Vector3.UP * 1.4,
+			option - Vector3.UP * 2.5
+		)
+		ground_probe.collision_mask = 1
+		var ground_hit := get_world_3d().direct_space_state.intersect_ray(ground_probe)
+		if ground_hit.is_empty():
+			continue
+		var floor_point: Vector3 = ground_hit["position"]
 		var sphere := SphereShape3D.new()
 		sphere.radius = 0.62
 		var query := PhysicsShapeQueryParameters3D.new()
 		query.shape = sphere
-		query.transform = Transform3D(Basis.IDENTITY, Vector3(option.x, 0.91, option.z))
+		query.transform = Transform3D(Basis.IDENTITY, Vector3(option.x, floor_point.y + 0.91, option.z))
 		query.collision_mask = 9 # Static obstacles and other vehicles.
 		query.exclude = [vehicle.get_rid()]
 		var hit := get_world_3d().direct_space_state.intersect_shape(query, 1)
 		if hit.is_empty():
-			leave_at = option
+			leave_at = Vector3(option.x, floor_point.y + 0.24, option.z)
 			valid = true
 			break
 	if not valid:
 		show_message("NO CLEAR PLACE TO EXIT")
 		return
-	hero.global_position = Vector3(leave_at.x, 0.24, leave_at.z)
+	hero.global_position = leave_at
 	hero.visible = true
 	var body := hero.get_node("CollisionShape3D") as CollisionShape3D
 	body.set_deferred("disabled", false)
@@ -863,6 +894,11 @@ func load_game() -> void:
 	mission_last_index = clampi(int(decoded.get("mission_index", 0)), 0, GameData.delivery_sites().size() - 1)
 	mission_limit = maxf(0.0, float(decoded.get("mission_limit", 0.0)))
 	mission_reward = maxi(0, int(decoded.get("mission_reward", 0)))
+	var saved_street_finds = decoded.get("street_finds", {})
+	street_find_records = saved_street_finds.duplicate(true) if saved_street_finds is Dictionary else {}
+	if is_instance_valid(street_finds):
+		street_finds.collected = street_find_records.duplicate(true)
+		street_finds.refresh()
 	layouts = decoded.get("interiors", {})
 	load_housing_state(decoded)
 	resident_relations.clear()
@@ -921,6 +957,7 @@ func save_game() -> void:
 		"mission_index": mission_last_index,
 		"mission_limit": mission_limit,
 		"mission_reward": mission_reward,
+		"street_finds": street_find_records,
 		"interiors": layouts,
 		"homes": purchased_homes,
 		"furnishings": placed_furniture,
@@ -1014,7 +1051,7 @@ func update_stick(point: Vector2) -> void:
 func update_hud() -> void:
 	if status_label == null:
 		return
-	status_label.text = "HP %03d    $%d    %s" % [ceili(hero.hp), cash, "★".repeat(wanted) + "☆".repeat(5 - wanted)]
+	status_label.text = "HP %03d   $%d   %s   ◈%d/%d" % [ceili(hero.hp), cash, "★".repeat(wanted) + "☆".repeat(5 - wanted), street_finds.count_collected(), street_finds.total_count()]
 	var gun := selected_gun()
 	var gun_id: String = gun["id"]
 	var active_mag := int(loaded_rounds.get(gun_id, 0))
@@ -1067,6 +1104,8 @@ func update_hud() -> void:
 			caption = "RETURN TO THE EXIT MARKER"
 	elif car_driven != null:
 		caption = "ACTION: EXIT CAR  •  STICK TO DRIVE"
+	elif street_finds.nearest(hero.global_position) >= 0:
+		caption = "ACTION: SEARCH STREET CACHE"
 	elif hero.global_position.distance_to(mission_point) <= 2.8:
 		caption = "ACTION: COLLECT PARCEL" if mission_stage == 0 else "ACTION: DELIVER PARCEL"
 	elif nearby_resident != null and (nearby_door.is_empty() or hero.global_position.distance_to(nearby_door["door"]) > 1.6):
