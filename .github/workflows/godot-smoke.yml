@@ -77,3 +77,11 @@ jobs:
             echo "GDScript error detected during conversation-activity integration test"
             exit 1
           fi
+      - name: Validate all 200 quests, real event triggers, stage rewards and safe saves
+        run: |
+          set -o pipefail
+          timeout 90s godot --headless --path . --script res://scripts/quest_200_test.gd 2>&1 | tee /tmp/pocket_200_quests.log
+          if grep -E 'SCRIPT ERROR:|Parse Error:' /tmp/pocket_200_quests.log; then
+            echo "Quest regression detected GDScript errors"
+            exit 1
+          fi
