@@ -80,6 +80,19 @@ func _draw() -> void:
 			if Rect2(Vector2.ZERO, size).has_point(spot):
 				draw_circle(spot, 3.2, Color("#f5d78c"))
 				draw_arc(spot, 5.1, 0.0, TAU, 10, Color("#314e5a"), 1.5)
+	# Dedicated minimap symbols for optional neighborhood jobs and the owned car.
+	if is_instance_valid(game.neighborhood_jobs):
+		var board_point: Vector2 = to_map(game.neighborhood_jobs.board_position, focus)
+		if Rect2(Vector2.ZERO, size).has_point(board_point):
+			draw_circle(board_point, 4.4, Color("#7cc2ee"))
+		if game.neighborhood_jobs.active:
+			var job_point: Vector2 = to_map(game.neighborhood_jobs.objective_position(), focus)
+			job_point = job_point.clamp(Vector2(6, 6), size - Vector2(6, 6))
+			draw_circle(job_point, 5.0, Color("#74f3c9"))
+	if is_instance_valid(game.garage_car):
+		var owned_point: Vector2 = to_map(game.garage_car.global_position, focus)
+		if Rect2(Vector2.ZERO, size).has_point(owned_point):
+			draw_circle(owned_point, 3.8, Color("#49e5d5"))
 	for car in game.city.cars:
 		if is_instance_valid(car):
 			var point := to_map(car.global_position, focus)
