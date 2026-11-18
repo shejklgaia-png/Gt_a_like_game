@@ -1,5 +1,6 @@
 extends Control
 class_name PocketMiniMap
+const Rules = preload("res://scripts/traffic_rules.gd")
 ## Draw-only minimap. Icons are procedural graphics (no textures).
 var game: Node3D
 var map_scale: float = 0.72
@@ -123,7 +124,7 @@ func _draw() -> void:
 			# The marked intersection crossing changes to amber on red.
 			if navigation_route == game.walk_route:
 				var crossed_axis: int = game.walk_route.crosswalk_axis(breadcrumb[index - 1], breadcrumb[index])
-				if crossed_axis >= 0 and not game.walk_route.TrafficRules.pedestrians_have_green(crossed_axis):
+				if crossed_axis >= 0 and not Rules.pedestrians_have_green(crossed_axis):
 					trail_color = Color("#ffc66d", 0.95)
 			draw_line(prev, next, trail_color, 2.6, true)
 		var raw_point: Vector2 = to_map(city_destination, focus)
