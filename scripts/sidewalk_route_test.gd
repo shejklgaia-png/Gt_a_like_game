@@ -1,4 +1,5 @@
 extends SceneTree
+const Rules = preload("res://scripts/traffic_rules.gd")
 ## Pedestrian navigation must use sidewalk corridors and only marked crossings.
 ## Test the real ACTION->commerce route to prevent invisible garage services.
 
@@ -87,7 +88,7 @@ func check() -> void:
 	if signal.is_empty() or int(signal["axis"]) != 0:
 		fail("GPS failed to recognize upcoming painted Z-direction crossing", 411)
 		return
-	if bool(signal["green"]) != walk.TrafficRules.pedestrians_have_green(0):
+	if bool(signal["green"]) != Rules.pedestrians_have_green(0):
 		fail("GPS signal state disagrees with the world's shared traffic phase", 412)
 		return
 	var signal_hint := walk.crossing_hint(Vector3(6.35, 0.3, -6.35))
