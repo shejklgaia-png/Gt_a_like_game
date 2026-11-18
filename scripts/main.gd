@@ -21,6 +21,8 @@ const ConversationActivitiesScript = preload("res://scripts/conversation_activit
 const CityPhoneScript = preload("res://scripts/city_phone.gd")
 const CityRouteScript = preload("res://scripts/city_route.gd")
 const SidewalkRouteScript = preload("res://scripts/sidewalk_route.gd")
+const QuestDirectorScript = preload("res://scripts/quest_director.gd")
+const QuestIncidentsScript = preload("res://scripts/quest_incidents.gd")
 
 var WEAPONS: Array[Dictionary] = GameData.weapons()
 const SAVE_PATH := "user://pocket_district_save.json"
@@ -74,6 +76,14 @@ var neighborhood_jobs: PocketNeighborhoodJobs
 var neighborhood_job_state: Dictionary = {}
 var conversation_activities: PocketConversationActivities
 var conversation_activity_state: Dictionary = {}
+var quest_director: PocketQuestDirector
+var quest_state: Dictionary = {}
+var quest_incidents: PocketQuestIncidents
+var quest_scan_clock: float = 0.0
+var quest_nearby_npc_id: int = -1
+var quest_nearby_district: String = ""
+var quest_last_driven: float = 0.0
+var quest_driving_start_meter: float = 0.0
 var deliveries: int = 0
 var autosave_clock: float = 0.0
 var camera_yaw: float = 0.0
@@ -198,6 +208,8 @@ func _ready() -> void:
 	hero.died.connect(on_hero_died)
 	for person in city.people:
 		connect_actor(person)
+	for automobile in city.cars:
+		connect_vehicle(automobile)
 	load_game()
 	if garage_owned:
 		spawn_garage_car()
@@ -210,6 +222,16 @@ func _ready() -> void:
 	conversation_activities.name = "ConversationActivities"
 	city.add_child(conversation_activities)
 	conversation_activities.setup(city.buildings, city.people, conversation_activity_state)
+	quest_director = QuestDirectorScript.new()
+	quest_director.name = "QuestDirector"
+	city.add_child(quest_director)
+	quest_director.setup(city.buildings, city.people, quest_state)
+	quest_director.started.connect(on_quest_started)
+	quest_director.advanced.connect(on_quest_advanced)
+	quest_director.finished.connect(on_quest_finished)
+	quest_incidents = QuestIncidentsScript.new()
+	city.add_child(quest_incidents)
+	quest_incidents.setup(self)
 	apply_outfit()
 	if mobile_optimization_enabled:
 		city.update_mobile_activity(hero.global_position)
@@ -249,6 +271,77 @@ func setup_lighting() -> void:
 func connect_actor(actor: PocketActor) -> void:
 	actor.injured.connect(on_actor_injured)
 	actor.died.connect(on_actor_died)
+
+
+func connect_vehicle(car: PocketVehicle) -> void:
+	if is_instance_valid(car) and not car.ran_into_hero.is_connected(on_car_collision):
+		car.ran_into_hero.connect(on_car_collision)
+
+
+func on_car_collision(vehicle: PocketVehicle, speed: float) -> void:
+	if not is_instance_valid(hero) or hero.dead or car_driven != null or indoors:
+		return
+	# Speed-limited hit with a car is both a gameplay event and real damage.
+	hero.hurt(clampf(speed * 0.70, 3.0, 18.0))
+	quest_event("vehicle_collision", {"speed": speed})
+	show_message("交通事故：安全な場所に移動してください")
+
+
+func quest_event(event_name: String, details: Dictionary = {}) -> void:
+	if is_instance_valid(quest_director):
+		quest_director.on_event(event_name, details)
+
+
+func on_quest_started(quest: Dictionary) -> void:
+	var title := String(quest.get("title", ""))
+	show_message("新しい出来事：" + title + "  |  CITY→依頼")
+	display_message_time = 9.0
+	# Do not override a route the player explicitly selected.
+	if navigation_kind == "":
+		var record: Dictionary = quest.get("record", {})
+		var target: Dictionary = quest_waypoint(String(record.get("id", "")))
+		if not target.is_empty():
+			set_city_waypoint("quest", String(record["id"]), title, target["point"])
+	save_game()
+
+
+func on_quest_advanced(quest: Dictionary) -> void:
+	show_message("依頼進行：" + String(quest.get("title", "")))
+	display_message_time = 5.5
+	save_game()
+
+
+func on_quest_finished(quest: Dictionary) -> void:
+	var payout := maxi(0, int(quest.get("reward", 0)))
+	cash += payout
+	total_earnings += payout
+	sound.play_ui("cash")
+	if navigation_kind == "quest" and navigation_id == String(quest.get("id", "")):
+		clear_city_waypoint()
+	show_message("依頼完了：" + String(quest.get("title", "")) + "  +$" + str(payout))
+	display_message_time = 7.0
+	save_game()
+
+
+func quest_waypoint(quest_id: String) -> Dictionary:
+	if not is_instance_valid(quest_director):
+		return {}
+	for quest in quest_director.active:
+		if String(quest.get("id", "")) == quest_id:
+			return quest_director.waypoint(
+				quest, current_travel_position(), garage_car,
+				neighborhood_jobs.board_position if is_instance_valid(neighborhood_jobs) else Vector3.ZERO,
+				mission_point
+			)
+	return {}
+
+
+func cancel_quest(quest_id: String) -> void:
+	if is_instance_valid(quest_director) and quest_director.abandon(quest_id):
+		if navigation_kind == "quest" and navigation_id == quest_id:
+			clear_city_waypoint()
+		show_message("依頼を中断しました：" + quest_id)
+		save_game()
 
 
 func _physics_process(delta: float) -> void:
@@ -782,6 +875,7 @@ func spawn_garage_car() -> void:
 	garage_car.position = garage_saved_position if garage_saved_position != Vector3.ZERO else garage_spawn_position()
 	garage_car.rotation.y = garage_saved_yaw
 	city.car_root.add_child(garage_car)
+	connect_vehicle(garage_car)
 
 
 func closest_usable_car(at: Vector3, max_distance: float = 4.5) -> PocketVehicle:
