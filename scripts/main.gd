@@ -149,6 +149,8 @@ var dialogue_text: Label
 var dialogue_scroll: ScrollContainer
 var dialogue_options: Array[Button] = []
 var dialogue_activity_status: Label
+var dialogue_recommend_button: Button
+var dialogue_recommendation: Dictionary = {}
 var dialogue_activity_buttons: Array[Button] = []
 var dialogue_activity_offers: Array[Dictionary] = []
 var dialogue_exit: Button
@@ -1578,6 +1580,11 @@ func create_dialogue_ui() -> void:
 		activity_button.pressed.connect(accept_conversation_activity.bind(index))
 		dialogue_activity_buttons.append(activity_button)
 		stack.add_child(activity_button)
+	dialogue_recommend_button = make_button("▶ おすすめの施設・仕事へ案内", Color("#4f6580"))
+	dialogue_recommend_button.custom_minimum_size = Vector2(0, 48)
+	dialogue_recommend_button.add_theme_font_size_override("font_size", 16)
+	dialogue_recommend_button.pressed.connect(follow_conversation_recommendation)
+	stack.add_child(dialogue_recommend_button)
 	dialogue_next = make_button("別の話題", Color("#476053"))
 	dialogue_next.custom_minimum_size = Vector2(0, 44)
 	dialogue_next.pressed.connect(continue_conversation)
@@ -1648,6 +1655,67 @@ func select_conversation_option(index: int) -> void:
 	sound.play_ui("ui")
 	update_conversation_panel()
 	# Persist periodically and on close, not on every displayed paragraph.
+
+
+func suggested_conversation_destination(resident: PocketActor, scenario: int) -> Dictionary:
+	if not is_instance_valid(resident):
+		return {}
+	var candidate_types: Array[String] = []
+	match resident.daily_role:
+		"買い物":
+			candidate_types = ["supermarket", "clothing", "furniture", "market"]
+		"勤務":
+			candidate_types = ["job_board", "office", "garage", "market"]
+		"帰宅":
+			candidate_types = ["apartment", "furniture", "garage"]
+		"外食":
+			candidate_types = ["restaurant", "lounge", "club", "supermarket"]
+		_:
+			candidate_types = ["restaurant", "supermarket", "garage"]
+	var suggested: String = candidate_types[posmod(int(scenario / 10) + resident.resident_id, candidate_types.size())]
+	if suggested == "job_board" and is_instance_valid(neighborhood_jobs):
+		return {"kind": "job_board", "key": "", "title": "地域ジョブ受付", "position": neighborhood_jobs.board_position}
+	var nearest := INF
+	var selected: Dictionary = {}
+	for lot in city.buildings:
+		if String(lot.get("business", "")) != suggested or not lot.has("door"):
+			continue
+		var distance: float = resident.global_position.distance_squared_to(lot["door"])
+		if distance < nearest:
+			nearest = distance
+			selected = lot
+	if selected.is_empty():
+		return {}
+	var business_names := {
+		"supermarket": "スーパー", "clothing": "洋服店", "furniture": "家具店",
+		"market": "市場", "office": "オフィス", "garage": "ガレージ",
+		"apartment": "住居", "restaurant": "飲食店", "lounge": "ラウンジ",
+		"club": "クラブ"
+	}
+	return {
+		"kind": "lot", "key": String(selected["id"]),
+		"title": String(business_names.get(suggested, suggested)),
+		"position": selected["door"]
+	}
+
+
+func follow_conversation_recommendation() -> void:
+	if dialogue_panel == null or not dialogue_panel.visible or dialogue_recommendation.is_empty():
+		return
+	var choice := dialogue_recommendation.duplicate(true)
+	end_conversation()
+	set_city_waypoint(String(choice["kind"]), String(choice["key"]), String(choice["title"]), choice["position"])
+	show_message("会話からの案内：" + String(choice["title"]))
+
+
+func cancel_conversation_activity() -> void:
+	if not is_instance_valid(conversation_activities) or not conversation_activities.abandon():
+		return
+	if navigation_kind == "activity":
+		clear_city_waypoint()
+	else:
+		save_game()
+	show_message("住民の活動を辞退しました")
 
 
 func accept_conversation_activity(index: int) -> void:
@@ -1724,6 +1792,10 @@ func update_conversation_panel() -> void:
 			dialogue_activity_status.text = "この住民との会話から始める街の活動" if not dialogue_activity_offers.is_empty() else "この住民から受けられる新しい活動はありません"
 	else:
 		dialogue_activity_status.text = ""
+	dialogue_recommendation = suggested_conversation_destination(conversation_actor, int(conversation_tree.get("scenario_id", 0)))
+	dialogue_recommend_button.visible = not dialogue_recommendation.is_empty()
+	if dialogue_recommend_button.visible:
+		dialogue_recommend_button.text = "▶ おすすめ：%sへ案内" % String(dialogue_recommendation["title"])
 	for i in range(dialogue_activity_buttons.size()):
 		var offer_button: Button = dialogue_activity_buttons[i]
 		offer_button.visible = i < dialogue_activity_offers.size()
@@ -1744,6 +1816,7 @@ func end_conversation() -> void:
 	conversation_seen.clear()
 	conversation_displayed_options.clear()
 	dialogue_activity_offers.clear()
+	dialogue_recommendation.clear()
 	conversation_node = ""
 	dialogue_panel.visible = false
 	stick_value = Vector2.ZERO
