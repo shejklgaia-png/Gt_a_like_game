@@ -33,17 +33,22 @@ The procedural city has multiple systems (timed courier contracts, neighborhood 
 - Vehicle and resident GPS tracks their moving world coordinates; facility and discovered-cache GPS point to stable addresses.
 - GPS selection is optional; courier and side jobs can continue concurrently without overwriting each other's underlying mission state.
 - GPS kind, address and label are stored as optional save fields, preserving compatibility with older saves.
-- GPS now uses the city's existing building-blocked two-meter A* grid to plot a traversable **approximate** route rather than a straight line through solid building footprints. The HUD arrow points to the next reachable step and its distance follows the route. When within 3.3m horizontally of the goal, the HUD changes to an **arrival / ACTION** prompt. The route is recalculated at most once per 1.5 seconds when deviating by 12m, or immediately when a tracked objective moves more than 3m.
-- The map still does **not** guarantee sidewalk-only, traffic-light-safe, ramp-aware or disability-accessible paths, nor provide spoken or street-named turn-by-turn instructions. The player still controls their own walking and driving; the route is advisory. If routing is momentarily unavailable, the map falls back to a direct bearing.
+- On foot within the central street grid, GPS now follows a reusable graph of **196 sidewalk nodes** connected along the existing curb-side pavements and across roads **only at mapped intersection crosswalks**. An approaching crossing warns **青で進む** or **赤信号で待機** according to the same shared signal phase used by cars and wandering pedestrians. Red-signal crosswalk spans turn amber on the minimap. The GPS remains advisory and does not prevent the player from stepping into the street.
+- In cars, outside the central street grid and on elevated roads, GPS retains the earlier building-blocked two-meter A* grid, so existing car and freeway navigation remains available.
+- The HUD points to the next waypoint along the chosen path and shows estimated route distance. Within 3.3m horizontally of the objective the HUD shows **arrival / ACTION**. Paths are recalculated at most once per 1.5 seconds for 12m deviations, or when moving objectives shift more than 3m.
+- The central pedestrian map aligns with curb-side corridors and designated intersection crossings, but the route is **not** an automated pedestrian controller. Roads outside the grid, narrow alleys, moving hazards, traffic violations, step-free/ramp accessibility, and spoken street-name navigation are not comprehensively mapped; actual crossing safety requires player judgement. If routing is unavailable, the map retains the older building-aware A* or a direct bearing.
 
 ## Implementation and QA
 
 - `scripts/city_phone.gd` dynamically reads the live city services and exposes a modal, scrollable five-tab menu. Menus pause simulation and prevent accidental joystick/camera actions.
 - `scripts/main.gd` owns persistent GPS state, dynamic destination resolution, input routing and the HUD banner.
 - `scripts/minimap.gd` renders the clipped A* route polyline, offscreen destination marker, and fallback direction.
-- `scripts/city_route.gd` caches routes using `PocketNavGrid`; no new city grid or extra physical scene objects are generated.
+- `scripts/city_route.gd` retains the general cached A* route using `PocketNavGrid`.
+- `scripts/sidewalk_route.gd` builds a fixed, reusable curb-and-crosswalk graph for **ground-level on-foot** navigation. The nearby crossing hint references the same `traffic_rules.gd` phase as simulated cars and pedestrians. No physical collision mesh or NPC behavior is changed.
+- **Garage ACTION fix:** touching the real `CITY GARAGE` door now opens its purchase/recall/visit commerce menu; previous direct-call tests did not exercise this entry point.
 - `scripts/city_phone_test.gd` covers tab availability, touch button, modal state, nonteleport navigation, changing job waypoints, moving owned car targets, facility/caches, clearing/reloading route state; runs in the Godot 4.4.1 and 4.7.2 CI matrix.
 - `scripts/city_route_test.gd` validates 12 building-avoiding routes, real detours, nearby turn guidance, refresh throttling, moving goal re-pathing, route arrival and GPS save/load.
+- `scripts/sidewalk_route_test.gd` verifies 12 storefront routes, legitimate pedestrian crosswalk segments, red/green live warnings, 60 stationary-route updates without recomputation, freeway fallback, plus the real ACTION→buy/recall garage interaction.
 - Android real-device tap targets, screen-reader use, UI scaling below 360px, driving readability and route usability remain to be playtested.
 
 No SERA changes.
