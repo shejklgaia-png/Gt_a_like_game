@@ -45,3 +45,11 @@ jobs:
             echo "Unexpected GDScript runtime or parse error in city-life test"
             exit 1
           fi
+      - name: Validate CITY phone discovery, live GPS, mobile buttons and persisted routes
+        run: |
+          set -o pipefail
+          godot --headless --path . --script res://scripts/city_phone_test.gd 2>&1 | tee /tmp/pocket_city_phone.log
+          if grep -E 'SCRIPT ERROR:|Parse Error:' /tmp/pocket_city_phone.log; then
+            echo "GDScript error detected during CITY phone test"
+            exit 1
+          fi
