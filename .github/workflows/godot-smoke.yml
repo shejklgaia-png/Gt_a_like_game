@@ -37,3 +37,5 @@ jobs:
         run: godot --headless --path . --script res://scripts/stability_test.gd
       - name: Exercise one hundred deterministic open-world QA cycles
         run: godot --headless --path . --script res://scripts/hundred_cycle_test.gd
+      - name: Validate citizen routines, neighborhood jobs and owned garage vehicle
+        run: godot --headless --path . --script res://scripts/city_life_test.gd
