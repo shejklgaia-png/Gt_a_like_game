@@ -169,6 +169,8 @@ func describe(record: Dictionary) -> String:
 
 func matches(conditions: Dictionary, payload: Dictionary, record: Dictionary = {}) -> bool:
 	for field in conditions:
+		if String(field) in ["event", "amount"]:
+			continue
 		var expected: String = String(conditions[field])
 		if expected == "" or expected == "any":
 			continue
