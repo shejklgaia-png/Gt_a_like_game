@@ -19,6 +19,7 @@ const GarageVehicleScript = preload("res://scripts/vehicle.gd")
 const NeighborhoodJobsScript = preload("res://scripts/neighborhood_jobs.gd")
 const CityPhoneScript = preload("res://scripts/city_phone.gd")
 const CityRouteScript = preload("res://scripts/city_route.gd")
+const SidewalkRouteScript = preload("res://scripts/sidewalk_route.gd")
 
 var WEAPONS: Array[Dictionary] = GameData.weapons()
 const SAVE_PATH := "user://pocket_district_save.json"
@@ -65,6 +66,7 @@ var navigation_id: String = ""
 var navigation_label: String = ""
 var navigation_position: Vector3 = Vector3.ZERO
 var city_route: PocketCityRoute
+var walk_route: PocketSidewalkRoute
 var street_finds: PocketStreetFinds
 var street_find_records: Dictionary = {}
 var neighborhood_jobs: PocketNeighborhoodJobs
@@ -163,6 +165,8 @@ func _ready() -> void:
 	city.build_city()
 	city_route = CityRouteScript.new()
 	city_route.setup(city.navigation)
+	walk_route = SidewalkRouteScript.new()
+	walk_route.setup(city.navigation)
 	street_finds = StreetFinds.new()
 	street_finds.name = "StreetFinds"
 	city.add_child(street_finds)
@@ -341,8 +345,10 @@ func _process(delta: float) -> void:
 			save_game()
 	display_message_time = maxf(0.0, display_message_time - delta)
 	if navigation_kind != "" and not indoors and is_instance_valid(city):
-		# Cache A* paths, never recompute the city-wide grid every frame.
-		city_route.refresh(current_travel_position(), city_waypoint_point(), delta)
+		# Foot navigation uses curb-side/crosswalk routes, while cars and
+		# elevated/perimeter travel retain the earlier general A* path.
+		var guidance: RefCounted = active_city_route()
+		guidance.refresh(current_travel_position(), city_waypoint_point(), delta)
 	animate_marker(delta)
 	hud_update_clock += delta
 	if hud_update_clock > 0.11:
@@ -715,7 +721,7 @@ func interaction() -> void:
 	if not door.is_empty():
 		if bool(door["shop"]):
 			open_shop()
-		elif String(door.get("business", "")) == "apartment" or Stores.is_retail(String(door.get("business", ""))):
+		elif String(door.get("business", "")) in ["apartment", "garage"] or Stores.is_retail(String(door.get("business", ""))):
 			open_commerce_for(door)
 		else:
 			enter_interior(door)
@@ -953,6 +959,13 @@ func current_travel_position() -> Vector3:
 	return car_driven.global_position if is_instance_valid(car_driven) else hero.global_position
 
 
+func active_city_route() -> RefCounted:
+	# GPS is advisory; the player's foot/car inputs are never hijacked.
+	if not indoors and not is_instance_valid(car_driven) and walk_route != null and walk_route.can_route(current_travel_position(), city_waypoint_point()):
+		return walk_route
+	return city_route
+
+
 func set_city_waypoint(kind: String, key: String, title: String, point: Vector3) -> void:
 	# The phone sets a route, not fast travel or remote shopping.
 	if not kind in ["delivery", "side_job", "job_board", "lot", "owned_car", "cache", "resident"]:
@@ -962,8 +975,9 @@ func set_city_waypoint(kind: String, key: String, title: String, point: Vector3)
 	navigation_label = title.substr(0, 60)
 	navigation_position = point
 	city_route.clear()
+	walk_route.clear()
 	if not indoors:
-		city_route.refresh(current_travel_position(), point)
+		active_city_route().refresh(current_travel_position(), point)
 	show_message("GPS SET: " + navigation_label)
 	save_game()
 
@@ -974,6 +988,7 @@ func clear_city_waypoint() -> void:
 	navigation_label = ""
 	navigation_position = Vector3.ZERO
 	city_route.clear()
+	walk_route.clear()
 	show_message("GPS CLEARED")
 	save_game()
 
@@ -1053,6 +1068,8 @@ func load_game() -> void:
 	navigation_label = String(decoded.get("nav_label", "")).substr(0, 60) if navigation_kind != "" else ""
 	if city_route != null:
 		city_route.clear()
+	if walk_route != null:
+		walk_route.clear()
 	navigation_position = Vector3.ZERO
 	var saved_nav = decoded.get("nav_position", [])
 	if saved_nav is Array and saved_nav.size() == 3:
@@ -1257,12 +1274,17 @@ func update_hud() -> void:
 		elif city_route.is_arrived(current_position, destination):
 			navigation_banner.text = "GPS: %s  |  到着・ACTIONで利用" % short_name
 		else:
-			# Steering follows the next open A* cell rather than pointing
-			# through building meshes directly at the destination.
-			city_route.refresh(current_position, destination)
-			var next_point: Vector3 = city_route.next_guidance_point(current_position, destination)
-			var along: int = roundi(city_route.remaining_distance(current_position, destination))
+			# Walking traces curbs and marked intersection crossings;
+			# driving retains building-avoiding general navigation.
+			var guidance: RefCounted = active_city_route()
+			guidance.refresh(current_position, destination)
+			var next_point: Vector3 = guidance.next_guidance_point(current_position, destination)
+			var along: int = roundi(guidance.remaining_distance(current_position, destination))
 			navigation_banner.text = "GPS: %s  次%s  約%dm" % [short_name, waypoint_arrow(next_point - current_position), along]
+			if guidance == walk_route:
+				var crossing_note: String = walk_route.crossing_hint(current_position)
+				if not crossing_note.is_empty():
+					navigation_banner.text = "GPS: " + crossing_note + "  " + waypoint_arrow(next_point - current_position)
 		navigation_banner.add_theme_color_override("font_color", Color("#9cf7dc"))
 	else:
 		navigation_banner.text = "CITY で仕事・施設を探す"
