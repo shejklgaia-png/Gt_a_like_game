@@ -43,6 +43,13 @@ func setup(buildings: Array[Dictionary], saved: Dictionary = {}) -> void:
 	update_marker()
 
 
+func restore(saved: Dictionary) -> void:
+	completed = clampi(int(saved.get("completed", 0)), 0, 100000)
+	active = bool(saved.get("active", false))
+	step_index = clampi(int(saved.get("step", 0)), 0, 1)
+	update_marker()
+
+
 func find_lot(business: String) -> Dictionary:
 	for lot in locations:
 		if String(lot.get("business", "")) == business:
