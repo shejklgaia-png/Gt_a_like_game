@@ -16,7 +16,6 @@ func fail(message: String, code: int) -> void:
 
 
 func check() -> void:
-	print("ACTIVITY QA: begin")
 	var save_path := "user://pocket_conversation_activity_qa.json"
 	for suffix in ["", ".bak", ".tmp"]:
 		if FileAccess.file_exists(save_path + suffix):
@@ -28,10 +27,8 @@ func check() -> void:
 	var game = scene.instantiate()
 	game.save_path_override = save_path
 	root.add_child(game)
-	print("ACTIVITY QA: scene added")
 	await process_frame
 	await physics_frame
-	print("ACTIVITY QA: after first frames")
 	if not Dialogue.is_valid_catalog():
 		fail("Existing 200 authored conversation subjects were modified", 452)
 		return
@@ -42,7 +39,6 @@ func check() -> void:
 	if activities.active or activities.total_completed != 0:
 		fail("Fresh save must not have a pending conversation activity", 454)
 		return
-	print("ACTIVITY QA: catalog and manager")
 	var kinds: Dictionary = {}
 	for resident in game.city.people:
 		if not is_instance_valid(resident):
@@ -59,10 +55,8 @@ func check() -> void:
 		fail("NPC roles/topics do not vary conversation activities sufficiently", 456)
 		return
 
-	print("ACTIVITY QA: 46 offers inspected")
 	var giver: PocketActor = game.city.people[0]
 	game.hero.global_position = giver.global_position + Vector3(0.4, 0, 0.3)
-	print("ACTIVITY QA: about to open dialogue")
 	game.begin_conversation(giver)
 	if not game.dialogue_panel.visible or game.dialogue_activity_offers.size() != 2:
 		fail("Opening a resident dialogue did not expose activity alternatives", 457)
@@ -70,9 +64,8 @@ func check() -> void:
 	if game.dialogue_activity_buttons.size() != 2 or not game.dialogue_activity_buttons[0].visible:
 		fail("Activity choices are not touch-selectable", 458)
 		return
-	print("ACTIVITY QA: dialogue opened")
 	var spoken: String = game.dialogue_text.text
-	var original_tree: Dictionary = game.conversation_tree
+	var original_tree: Dictionary = game.conversation_tree.duplicate(true)
 	if spoken != String(original_tree["nodes"]["start"]["text"]) or not Dialogue.is_valid_tree(original_tree):
 		fail("Activity UI modified the author's unique spoken paragraphs", 459)
 		return
@@ -87,9 +80,7 @@ func check() -> void:
 	var initial_cash: int = game.cash
 	var initial_earnings: int = game.total_earnings
 	var previous_affinity: int = int(game.resident_relations.get(str(giver.resident_id), {}).get("affinity", 0))
-	print("ACTIVITY QA: before accept")
 	game.dialogue_activity_buttons[0].pressed.emit()
-	print("ACTIVITY QA: after accept")
 	if game.dialogue_panel.visible or not activities.active or activities.giver_id != giver.resident_id:
 		fail("Activity offer did not close dialogue and create a real mission", 461)
 		return
@@ -99,7 +90,6 @@ func check() -> void:
 	if game.cash != initial_cash:
 		fail("Activity paid cash without performing any tasks", 463)
 		return
-	print("ACTIVITY QA: before phone")
 	game.city_phone.open_phone()
 	game.city_phone.open_page("仕事")
 	var phone_found := false
@@ -110,21 +100,17 @@ func check() -> void:
 		fail("The new activity is not reachable via CITY jobs menu", 464)
 		return
 	game.city_phone.close_phone()
-	print("ACTIVITY QA: phone closed")
 	if paused:
 		fail("Closing CITY phone after accepting activity left the city paused", 465)
 		return
 
 	# Save mid-route and reload; step and the giver must survive.
 	game.save_game()
-	print("ACTIVITY QA: before state reset")
 	activities.restore({})
 	if activities.active:
 		fail("Regression harness could not reset temporary activity state", 466)
 		return
-	print("ACTIVITY QA: before load")
 	game.load_game()
-	print("ACTIVITY QA: after load")
 	if not activities.active or activities.giver_id != giver.resident_id or activities.kind != String(proposed["id"]):
 		fail("Mid-activity save/load did not restore assigned NPC, type and progress", 467)
 		return
@@ -146,9 +132,7 @@ func check() -> void:
 	else:
 		var first_site: Vector3 = activities.objective_position()
 		game.hero.global_position = first_site + Vector3(0, 0.3, 0)
-		print("ACTIVITY QA: before site ACTION")
 		game.interaction()
-		print("ACTIVITY QA: after site ACTION")
 		if not activities.active or activities.step_index != 1 or game.cash != initial_cash:
 			fail("First ACTION must advance the resident's two-site errand without paying", 470)
 			return
@@ -157,18 +141,13 @@ func check() -> void:
 			fail("Conversation errand did not update to its distinct second waypoint", 471)
 			return
 		game.save_game()
-		print("ACTIVITY QA: before state reset")
 		activities.restore({})
-		print("ACTIVITY QA: before load")
 		game.load_game()
-		print("ACTIVITY QA: after load")
 		if activities.step_index != 1 or not activities.active:
 			fail("The second activity stage was lost after save/reload", 472)
 			return
 		game.hero.global_position = second_site + Vector3(0, 0.3, 0)
-		print("ACTIVITY QA: before site ACTION")
 		game.interaction()
-		print("ACTIVITY QA: after site ACTION")
 		if activities.active or game.cash != initial_cash + int(proposed["reward"]):
 			fail("Completing the second site did not pay exactly once", 473)
 			return
@@ -190,9 +169,7 @@ func check() -> void:
 		fail("Finished activity still grants interaction rewards", 478)
 		return
 	game.save_game()
-	print("ACTIVITY QA: before load")
 	game.load_game()
-	print("ACTIVITY QA: after load")
 	if activities.total_completed != 1 or not activities.completed.has(activities.record_key(giver.resident_id, String(proposed["id"]))):
 		fail("Completed activity anti-farming state did not persist", 479)
 		return
@@ -218,14 +195,12 @@ func check() -> void:
 	# housing, garages and board jobs without inventing any speech.
 	var recommender: PocketActor = game.city.people[2]
 	game.hero.global_position = recommender.global_position + Vector3(0.35, 0, 0.2)
-	print("ACTIVITY QA: before recommended NPC dialogue")
 	game.begin_conversation(recommender)
 	if not game.dialogue_panel.visible or game.dialogue_recommendation.is_empty():
 		fail("A second resident did not offer existing city systems", 483)
 		return
 	var recommendation: Dictionary = game.dialogue_recommendation.duplicate(true)
 	var prior_cash: int = game.cash
-	print("ACTIVITY QA: before recommend button")
 	game.dialogue_recommend_button.pressed.emit()
 	if game.dialogue_panel.visible or game.cash != prior_cash:
 		fail("Recommendation navigated without closing conversation, or paid without action", 484)
@@ -245,7 +220,6 @@ func check() -> void:
 		return
 	game.set_city_waypoint("activity", "", "食べ歩きの下見", activities.objective_position())
 	var before_cancel: int = game.cash
-	print("ACTIVITY QA: before cancellation")
 	game.cancel_conversation_activity()
 	if activities.active or game.cash != before_cancel or game.navigation_kind == "activity":
 		fail("Cancelling a social activity did not cleanly remove the active state", 488)
@@ -254,13 +228,10 @@ func check() -> void:
 		fail("Cancelling activity falsely marked request complete", 489)
 		return
 	game.save_game()
-	print("ACTIVITY QA: before load")
 	game.load_game()
-	print("ACTIVITY QA: after load")
 	if activities.active or activities.completed.has(activities.record_key(rescuer.resident_id, "food")):
 		fail("Cancelled activity returned after save and reload", 490)
 		return
-	print("ACTIVITY QA: all checks completed")
 	print("PASS: 46 residents offer multiple diverse activities tied to role/topic")
 	print("PASS: original dialogue paragraphs and 200-topic content remain unchanged")
 	print("PASS: tap an offer -> real mission, 2-site ACTION progression, GPS and CITY phone")
