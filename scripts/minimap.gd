@@ -114,11 +114,18 @@ func _draw() -> void:
 	# straight line through shops and apartments. Physics is unaffected.
 	if game.navigation_kind != "" and game.city_route != null:
 		var city_destination: Vector3 = game.city_waypoint_point()
-		var breadcrumb: PackedVector2Array = game.city_route.visible_route(focus, city_destination)
+		var navigation_route: RefCounted = game.active_city_route()
+		var breadcrumb: PackedVector2Array = navigation_route.visible_route(focus, city_destination)
 		for index in range(1, breadcrumb.size()):
 			var prev := to_map(Vector3(breadcrumb[index - 1].x, 0, breadcrumb[index - 1].y), focus)
 			var next := to_map(Vector3(breadcrumb[index].x, 0, breadcrumb[index].y), focus)
-			draw_line(prev, next, Color("#4bdac4", 0.88), 2.6, true)
+			var trail_color := Color("#4bdac4", 0.88)
+			# The marked intersection crossing changes to amber on red.
+			if navigation_route == game.walk_route:
+				var crossed_axis: int = game.walk_route.crosswalk_axis(breadcrumb[index - 1], breadcrumb[index])
+				if crossed_axis >= 0 and not game.walk_route.TrafficRules.pedestrians_have_green(crossed_axis):
+					trail_color = Color("#ffc66d", 0.95)
+			draw_line(prev, next, trail_color, 2.6, true)
 		var raw_point: Vector2 = to_map(city_destination, focus)
 		var city_point := raw_point.clamp(Vector2(9, 9), size - Vector2(9, 9))
 		# If a route is unavailable (e.g. a temporary map rebuild),
