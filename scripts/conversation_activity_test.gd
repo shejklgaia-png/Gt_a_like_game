@@ -157,10 +157,10 @@ func check() -> void:
 			return
 		game.save_game()
 		print("ACTIVITY QA: before state reset")
-	activities.restore({})
+		activities.restore({})
 		print("ACTIVITY QA: before load")
-	game.load_game()
-	print("ACTIVITY QA: after load")
+		game.load_game()
+		print("ACTIVITY QA: after load")
 		if activities.step_index != 1 or not activities.active:
 			fail("The second activity stage was lost after save/reload", 472)
 			return
