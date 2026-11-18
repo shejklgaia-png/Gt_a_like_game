@@ -1236,6 +1236,14 @@ func update_hud() -> void:
 	var objective := "PICK UP" if mission_stage == 0 else ("DROP OFF %.0fs" % maxf(0.0, mission_limit))
 	mission_label.text = "#%d %s  %s %dm  •  %s" % [deliveries + 1, String(contract["title"]), heading, roundi(ground_distance), objective]
 	mission_label.add_theme_color_override("font_color", Color("#ff8585") if mission_stage == 1 and mission_limit <= 15.0 else Color("#f5d58c"))
+	if navigation_kind != "":
+		var nav_delta: Vector3 = city_waypoint_point() - current_position
+		var nav_dist: int = roundi(Vector2(nav_delta.x, nav_delta.z).length())
+		navigation_banner.text = "GPS: %s  %s %dm" % [navigation_label, waypoint_arrow(nav_delta), nav_dist]
+		navigation_banner.add_theme_color_override("font_color", Color("#9cf7dc"))
+	else:
+		navigation_banner.text = "CITY で仕事・施設を探す"
+		navigation_banner.add_theme_color_override("font_color", Color("#b7d2db"))
 	var aim_dir := -camera.global_transform.basis.z
 	aim_dir.y = 0.0
 	aim_dir = aim_dir.normalized()
@@ -1332,6 +1340,8 @@ func setup_ui() -> void:
 	ui.add_child(status_label)
 	mission_label = make_label(18, Color("#f5d58c"))
 	ui.add_child(mission_label)
+	navigation_banner = make_label(16, Color("#9cf7dc"))
+	ui.add_child(navigation_banner)
 	weapon_label = make_label(20, Color("#d6edee"))
 	ui.add_child(weapon_label)
 	crosshair_label = make_label(32, Color("#d6fff1"))
@@ -1362,6 +1372,7 @@ func setup_ui() -> void:
 	reload_button = make_button("RELOAD", Color("#4e696e"))
 	aim_button = make_button("SCOPE", Color("#52636f"))
 	pause_button = make_button("II", Color("#3c5365"))
+	city_phone_button = make_button("CITY", Color("#286c74"))
 	fire_button.button_down.connect(func() -> void: fire_held = true)
 	fire_button.button_up.connect(func() -> void: fire_held = false)
 	action_button.pressed.connect(interaction)
@@ -1370,6 +1381,7 @@ func setup_ui() -> void:
 	reload_button.pressed.connect(reload_gun)
 	aim_button.pressed.connect(toggle_scope)
 	pause_button.pressed.connect(toggle_settings)
+	city_phone_button.pressed.connect(toggle_city_phone)
 	for button in [fire_button, action_button, run_button, weapon_button, reload_button, aim_button, pause_button, city_phone_button]:
 		ui.add_child(button)
 	minimap = MapScript.new()
@@ -1381,6 +1393,9 @@ func setup_ui() -> void:
 	create_commerce_ui()
 	create_settings_ui()
 	create_dialogue_ui()
+	city_phone = CityPhoneScript.new()
+	city_phone.game = self
+	ui.add_child(city_phone)
 
 
 func style(background: Color, radius: int) -> StyleBoxFlat:
@@ -2021,7 +2036,9 @@ func layout_ui() -> void:
 	weapon_label.position = Vector2(24, 61)
 	weapon_label.size = Vector2(screen.x - 36, 32)
 	mission_label.position = Vector2(20, 121)
-	mission_label.size = Vector2(screen.x - 102, 35)
+	mission_label.size = Vector2(screen.x - 180, 35)
+	navigation_banner.position = Vector2(120, 160)
+	navigation_banner.size = Vector2(maxf(120.0, screen.x - 132.0), 32)
 	hint_label.position = Vector2(10, screen.y - 75)
 	hint_label.size = Vector2(screen.x - 20, 55)
 	stick_center = Vector2(screen.x * 0.73, screen.y - 115)
@@ -2052,6 +2069,8 @@ func layout_ui() -> void:
 		camera.fov = 69.0
 	pause_button.position = Vector2(screen.x - 70, 116)
 	pause_button.size = Vector2(57, 43)
+	city_phone_button.position = Vector2(screen.x - 145, 116)
+	city_phone_button.size = Vector2(69, 43)
 	minimap.position = Vector2(14, 158)
 	minimap.size = Vector2(minf(94, screen.x * 0.26), minf(94, screen.x * 0.26))
 	perf_overlay.position = Vector2(15, 145)
@@ -2066,3 +2085,6 @@ func layout_ui() -> void:
 	if dialogue_panel != null:
 		dialogue_panel.size = Vector2(minf(screen.x - 22.0, 560.0), minf(screen.y - 32.0, 540.0))
 		dialogue_panel.position = (screen - dialogue_panel.size) * 0.5
+	if city_phone != null:
+		city_phone.size = Vector2(minf(screen.x - 22.0, 620.0), minf(screen.y - 30.0, 690.0))
+		city_phone.position = (screen - city_phone.size) * 0.5
