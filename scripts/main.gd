@@ -18,6 +18,7 @@ const StreetFinds = preload("res://scripts/street_finds.gd")
 const GarageVehicleScript = preload("res://scripts/vehicle.gd")
 const NeighborhoodJobsScript = preload("res://scripts/neighborhood_jobs.gd")
 const CityPhoneScript = preload("res://scripts/city_phone.gd")
+const CityRouteScript = preload("res://scripts/city_route.gd")
 
 var WEAPONS: Array[Dictionary] = GameData.weapons()
 const SAVE_PATH := "user://pocket_district_save.json"
@@ -63,6 +64,7 @@ var navigation_kind: String = ""
 var navigation_id: String = ""
 var navigation_label: String = ""
 var navigation_position: Vector3 = Vector3.ZERO
+var city_route: PocketCityRoute
 var street_finds: PocketStreetFinds
 var street_find_records: Dictionary = {}
 var neighborhood_jobs: PocketNeighborhoodJobs
@@ -159,6 +161,8 @@ func _ready() -> void:
 	city.name = "OutdoorWorld"
 	add_child(city)
 	city.build_city()
+	city_route = CityRouteScript.new()
+	city_route.setup(city.navigation)
 	street_finds = StreetFinds.new()
 	street_finds.name = "StreetFinds"
 	city.add_child(street_finds)
@@ -336,6 +340,9 @@ func _process(delta: float) -> void:
 			refresh_mission_marker()
 			save_game()
 	display_message_time = maxf(0.0, display_message_time - delta)
+	if navigation_kind != "" and not indoors and is_instance_valid(city):
+		# Cache A* paths, never recompute the city-wide grid every frame.
+		city_route.refresh(current_travel_position(), city_waypoint_point(), delta)
 	animate_marker(delta)
 	hud_update_clock += delta
 	if hud_update_clock > 0.11:
@@ -954,6 +961,9 @@ func set_city_waypoint(kind: String, key: String, title: String, point: Vector3)
 	navigation_id = key
 	navigation_label = title.substr(0, 60)
 	navigation_position = point
+	city_route.clear()
+	if not indoors:
+		city_route.refresh(current_travel_position(), point)
 	show_message("GPS SET: " + navigation_label)
 	save_game()
 
@@ -963,6 +973,7 @@ func clear_city_waypoint() -> void:
 	navigation_id = ""
 	navigation_label = ""
 	navigation_position = Vector3.ZERO
+	city_route.clear()
 	show_message("GPS CLEARED")
 	save_game()
 
@@ -1040,6 +1051,8 @@ func load_game() -> void:
 		navigation_kind = ""
 	navigation_id = String(decoded.get("nav_id", "")).substr(0, 80)
 	navigation_label = String(decoded.get("nav_label", "")).substr(0, 60) if navigation_kind != "" else ""
+	if city_route != null:
+		city_route.clear()
 	navigation_position = Vector3.ZERO
 	var saved_nav = decoded.get("nav_position", [])
 	if saved_nav is Array and saved_nav.size() == 3:
@@ -1237,9 +1250,19 @@ func update_hud() -> void:
 	mission_label.text = "#%d %s  %s %dm  •  %s" % [deliveries + 1, String(contract["title"]), heading, roundi(ground_distance), objective]
 	mission_label.add_theme_color_override("font_color", Color("#ff8585") if mission_stage == 1 and mission_limit <= 15.0 else Color("#f5d58c"))
 	if navigation_kind != "":
-		var nav_delta: Vector3 = city_waypoint_point() - current_position
-		var nav_dist: int = roundi(Vector2(nav_delta.x, nav_delta.z).length())
-		navigation_banner.text = "GPS: %s  %s %dm" % [navigation_label, waypoint_arrow(nav_delta), nav_dist]
+		var destination: Vector3 = city_waypoint_point()
+		var short_name := navigation_label.substr(0, 20)
+		if indoors:
+			navigation_banner.text = "GPS %s  |  外へ出て案内再開" % short_name
+		elif city_route.is_arrived(current_position, destination):
+			navigation_banner.text = "GPS %s  |  到着・ACTIONで利用" % short_name
+		else:
+			# Steering follows the next open A* cell rather than pointing
+			# through building meshes directly at the destination.
+			city_route.refresh(current_position, destination)
+			var next_point: Vector3 = city_route.next_guidance_point(current_position, destination)
+			var along: int = roundi(city_route.remaining_distance(current_position, destination))
+			navigation_banner.text = "GPS %s  次%s  約%dm" % [short_name, waypoint_arrow(next_point - current_position), along]
 		navigation_banner.add_theme_color_override("font_color", Color("#9cf7dc"))
 	else:
 		navigation_banner.text = "CITY で仕事・施設を探す"
