@@ -72,7 +72,7 @@ jobs:
       - name: Test dialogue-origin activity routes, rewards, rapport, and save/load
         run: |
           set -o pipefail
-          godot --headless --path . --script res://scripts/conversation_activity_test.gd 2>&1 | tee /tmp/pocket_conversation_activity.log
+          timeout 75s godot --headless --path . --script res://scripts/conversation_activity_test.gd 2>&1 | tee /tmp/pocket_conversation_activity.log
           if grep -E 'SCRIPT ERROR:|Parse Error:' /tmp/pocket_conversation_activity.log; then
             echo "GDScript error detected during conversation-activity integration test"
             exit 1
