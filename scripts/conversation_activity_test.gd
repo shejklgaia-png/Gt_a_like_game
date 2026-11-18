@@ -138,7 +138,7 @@ func check() -> void:
 			return
 		var peer: PocketActor = game.city.people[friend_id]
 		game.hero.global_position = peer.global_position + Vector3(0.3, 0, 0.3)
-		game.begin_conversation(peer)
+		game.interaction()
 		if activities.active or game.cash != initial_cash + int(proposed["reward"]):
 			fail("Introduction did not finish through the second NPC's dialogue", 469)
 			return
@@ -209,7 +209,7 @@ func check() -> void:
 		var target_id: int = activities.target_resident_id()
 		var contact: PocketActor = game.city.people[target_id]
 		game.hero.global_position = contact.global_position + Vector3(0.4, 0, 0)
-		game.begin_conversation(contact)
+		game.interaction()
 		if activities.active or game.cash != before_social + 160 or game.navigation_kind == "activity":
 			fail("Social introduction did not resolve through a valid actual conversation", 481)
 			return
