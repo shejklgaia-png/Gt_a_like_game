@@ -193,6 +193,19 @@ func closest_lot(business: String, owned_only: bool = false, unowned_only: bool 
 
 func fill_jobs() -> void:
 	note("仕事は現地でACTIONを押して開始・進行します。\n配達中も別の地域ジョブを選べます。")
+	var social: PocketConversationActivities = game.conversation_activities
+	if is_instance_valid(social) and social.active:
+		destination("住民の活動：" + String(social.active_offer()["title"]),
+			social.objective_description(), "activity", "", social.objective_position(), Color("#6b6451"))
+		var abandon_button := make_button("住民の活動を辞退する（報酬なし）", Color("#694e56"), 15)
+		abandon_button.custom_minimum_size.y = 47
+		abandon_button.pressed.connect(func() -> void:
+			game.cancel_conversation_activity()
+			open_page("仕事")
+		)
+		entries.add_child(abandon_button)
+	elif is_instance_valid(social):
+		note("住民と話すと、街の活動や紹介を受けられます（報酬・親密度あり）。")
 	var contract: Dictionary = GameData.delivery_contract(game.deliveries)
 	var label := "配達  #%d  %s" % [game.deliveries + 1, String(contract["title"])]
 	var status := "荷物の届け先（制限時間あり）" if game.mission_stage == 1 else "荷物を受け取る（初期ジョブ）"
@@ -259,6 +272,9 @@ func fill_cars() -> void:
 
 func fill_discoveries() -> void:
 	note("探索・交流・所持品・設定への入口です。")
+	if is_instance_valid(game.conversation_activities):
+		var activities: PocketConversationActivities = game.conversation_activities
+		note("住民の活動完了：%d件  /  会話から仕事や交流に派生できます" % activities.total_completed)
 	var closest_id := -1
 	var best := INF
 	for i in range(game.street_finds.total_count()):

@@ -17,6 +17,7 @@ const Furniture = preload("res://scripts/furniture_catalog.gd")
 const StreetFinds = preload("res://scripts/street_finds.gd")
 const GarageVehicleScript = preload("res://scripts/vehicle.gd")
 const NeighborhoodJobsScript = preload("res://scripts/neighborhood_jobs.gd")
+const ConversationActivitiesScript = preload("res://scripts/conversation_activities.gd")
 const CityPhoneScript = preload("res://scripts/city_phone.gd")
 const CityRouteScript = preload("res://scripts/city_route.gd")
 const SidewalkRouteScript = preload("res://scripts/sidewalk_route.gd")
@@ -71,6 +72,8 @@ var street_finds: PocketStreetFinds
 var street_find_records: Dictionary = {}
 var neighborhood_jobs: PocketNeighborhoodJobs
 var neighborhood_job_state: Dictionary = {}
+var conversation_activities: PocketConversationActivities
+var conversation_activity_state: Dictionary = {}
 var deliveries: int = 0
 var autosave_clock: float = 0.0
 var camera_yaw: float = 0.0
@@ -145,6 +148,11 @@ var dialogue_speaker: Label
 var dialogue_text: Label
 var dialogue_scroll: ScrollContainer
 var dialogue_options: Array[Button] = []
+var dialogue_activity_status: Label
+var dialogue_recommend_button: Button
+var dialogue_recommendation: Dictionary = {}
+var dialogue_activity_buttons: Array[Button] = []
+var dialogue_activity_offers: Array[Dictionary] = []
 var dialogue_exit: Button
 var dialogue_next: Button
 var conversation_seen: Dictionary = {}
@@ -198,6 +206,10 @@ func _ready() -> void:
 	neighborhood_jobs.name = "NeighborhoodJobs"
 	city.add_child(neighborhood_jobs)
 	neighborhood_jobs.setup(city.buildings, neighborhood_job_state)
+	conversation_activities = ConversationActivitiesScript.new()
+	conversation_activities.name = "ConversationActivities"
+	city.add_child(conversation_activities)
+	conversation_activities.setup(city.buildings, city.people, conversation_activity_state)
 	apply_outfit()
 	if mobile_optimization_enabled:
 		city.update_mobile_activity(hero.global_position)
@@ -681,6 +693,22 @@ func interaction() -> void:
 	if car_driven != null:
 		exit_car()
 		return
+	# Social introductions require a real conversation with the designated
+	# citizen. Give that NPC priority over adjacent storefronts and caches.
+	if is_instance_valid(conversation_activities) and conversation_activities.active and conversation_activities.kind == "meet":
+		var friend_id: int = conversation_activities.target_resident_id()
+		if friend_id >= 0 and friend_id < city.people.size():
+			var friend: PocketActor = city.people[friend_id]
+			if is_instance_valid(friend) and not friend.dead and hero.global_position.distance_to(friend.global_position) <= 3.6:
+				begin_conversation(friend)
+				return
+	# A conversation can turn into a tangible city activity. At the chosen
+	# site ACTION advances its own route before normal commerce/parcel checks.
+	if is_instance_valid(conversation_activities):
+		var activity_result: Dictionary = conversation_activities.interact_at(hero.global_position)
+		if not activity_result.is_empty():
+			process_activity_result(activity_result)
+			return
 	# Separate neighborhood jobs provide optional non-violent exploration.
 	if is_instance_valid(neighborhood_jobs):
 		var side_job_result: Dictionary = neighborhood_jobs.try_interact(hero.global_position)
@@ -955,6 +983,29 @@ func advance_delivery() -> void:
 	save_game()
 
 
+func process_activity_result(result: Dictionary) -> void:
+	if result.is_empty():
+		return
+	var reward: int = maxi(0, int(result.get("reward", 0)))
+	if reward > 0:
+		cash += reward
+		total_earnings += reward
+		var resident_key := str(int(result.get("giver", -1)))
+		var record: Dictionary = resident_relations.get(resident_key, {"talks": 0, "affinity": 0, "topics_seen": 0})
+		record["affinity"] = clampi(int(record.get("affinity", 0)) + 8, 0, 100)
+		resident_relations[resident_key] = record
+		sound.play_ui("cash")
+	else:
+		sound.play_ui("ui")
+	show_message(String(result.get("message", "")))
+	if String(result.get("event", "")) == "finish" and navigation_kind == "activity":
+		clear_city_waypoint()
+		# Keep the completion notification visible after removing the GPS.
+		show_message(String(result.get("message", "")))
+	else:
+		save_game()
+
+
 func current_travel_position() -> Vector3:
 	return car_driven.global_position if is_instance_valid(car_driven) else hero.global_position
 
@@ -968,7 +1019,7 @@ func active_city_route() -> RefCounted:
 
 func set_city_waypoint(kind: String, key: String, title: String, point: Vector3) -> void:
 	# The phone sets a route, not fast travel or remote shopping.
-	if not kind in ["delivery", "side_job", "job_board", "lot", "owned_car", "cache", "resident"]:
+	if not kind in ["delivery", "side_job", "job_board", "lot", "owned_car", "cache", "resident", "activity"]:
 		return
 	navigation_kind = kind
 	navigation_id = key
@@ -998,6 +1049,9 @@ func city_waypoint_point() -> Vector3:
 	match navigation_kind:
 		"delivery":
 			return mission_point
+		"activity":
+			if is_instance_valid(conversation_activities) and conversation_activities.active:
+				return conversation_activities.objective_position()
 		"side_job":
 			if is_instance_valid(neighborhood_jobs):
 				return neighborhood_jobs.objective_position()
@@ -1062,7 +1116,7 @@ func load_game() -> void:
 			garage_saved_position = saved_point
 	garage_saved_yaw = float(decoded.get("garage_yaw", PI * 0.5))
 	navigation_kind = String(decoded.get("nav_kind", ""))
-	if not navigation_kind in ["delivery", "side_job", "job_board", "lot", "owned_car", "cache", "resident"]:
+	if not navigation_kind in ["delivery", "side_job", "job_board", "lot", "owned_car", "cache", "resident", "activity"]:
 		navigation_kind = ""
 	navigation_id = String(decoded.get("nav_id", "")).substr(0, 80)
 	navigation_label = String(decoded.get("nav_label", "")).substr(0, 60) if navigation_kind != "" else ""
@@ -1076,6 +1130,10 @@ func load_game() -> void:
 		var nav := Vector3(float(saved_nav[0]), float(saved_nav[1]), float(saved_nav[2]))
 		if nav.is_finite() and absf(nav.x) < 180.0 and absf(nav.z) < 180.0 and nav.y > -2.0 and nav.y < 15.0:
 			navigation_position = nav
+	var saved_activity = decoded.get("conversation_activities", {})
+	conversation_activity_state = saved_activity.duplicate(true) if saved_activity is Dictionary else {}
+	if is_instance_valid(conversation_activities):
+		conversation_activities.restore(conversation_activity_state)
 	var saved_jobs = decoded.get("neighborhood_jobs", {})
 	neighborhood_job_state = saved_jobs.duplicate(true) if saved_jobs is Dictionary else {}
 	if is_instance_valid(neighborhood_jobs):
@@ -1152,6 +1210,7 @@ func save_game() -> void:
 		"garage_yaw": garage_car.rotation.y if is_instance_valid(garage_car) else garage_saved_yaw,
 		"street_finds": street_find_records,
 		"neighborhood_jobs": neighborhood_jobs.save_state() if is_instance_valid(neighborhood_jobs) else neighborhood_job_state,
+		"conversation_activities": conversation_activities.save_state() if is_instance_valid(conversation_activities) else conversation_activity_state,
 		"interiors": layouts,
 		"homes": purchased_homes,
 		"furnishings": placed_furniture,
@@ -1310,6 +1369,9 @@ func update_hud() -> void:
 		caption = "FIRST JOB: FOLLOW GOLD PARCEL • PRESS ACTION"
 	elif deliveries == 0 and mission_stage == 1:
 		caption = "FIRST JOB: FOLLOW ARROW • DELIVER BEFORE TIME RUNS OUT"
+	if is_instance_valid(conversation_activities) and conversation_activities.active:
+		var activity_delta: Vector3 = conversation_activities.objective_position() - current_position
+		caption = "住民の依頼：%s  %s%dm" % [conversation_activities.objective_description(), waypoint_arrow(activity_delta), roundi(Vector2(activity_delta.x, activity_delta.z).length())]
 	if is_instance_valid(neighborhood_jobs) and neighborhood_jobs.active:
 		var job_delta: Vector3 = neighborhood_jobs.objective_position() - current_position
 		caption = "SIDE JOB %s  %s %dm" % [neighborhood_jobs.describe_progress(), waypoint_arrow(job_delta), roundi(Vector2(job_delta.x, job_delta.z).length())]
@@ -1330,6 +1392,8 @@ func update_hud() -> void:
 			caption = "RETURN TO THE EXIT MARKER"
 	elif car_driven != null:
 		caption = "ACTION: EXIT CAR  •  STICK TO DRIVE"
+	elif is_instance_valid(conversation_activities) and conversation_activities.active and Vector2(hero.global_position.x, hero.global_position.z).distance_to(Vector2(conversation_activities.objective_position().x, conversation_activities.objective_position().z)) <= 3.0:
+		caption = "ACTION: 紹介された住民と話す" if conversation_activities.kind == "meet" else "ACTION: 住民の依頼を進める"
 	elif is_instance_valid(neighborhood_jobs) and neighborhood_jobs.close_to_job(hero.global_position):
 		caption = "ACTION: " + neighborhood_jobs.action_hint()
 	elif street_finds.nearest(hero.global_position) >= 0:
@@ -1483,9 +1547,18 @@ func create_dialogue_ui() -> void:
 	for side in ["left", "right", "top", "bottom"]:
 		padding.add_theme_constant_override("margin_" + side, 17)
 	dialogue_panel.add_child(padding)
+	# A narrow phone must be able to scroll the entire conversation,
+	# including activity invitations and the close button. The individual
+	# authored passage remains scrollable when the subject text is long.
+	var dialogue_content_scroll := ScrollContainer.new()
+	dialogue_content_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	dialogue_content_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	dialogue_content_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	padding.add_child(dialogue_content_scroll)
 	var stack := VBoxContainer.new()
+	stack.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	stack.add_theme_constant_override("separation", 8)
-	padding.add_child(stack)
+	dialogue_content_scroll.add_child(stack)
 	dialogue_speaker = make_label(21, Color("#f6d797"))
 	stack.add_child(dialogue_speaker)
 	# Keep answers fixed and readable while allowing arbitrarily long paragraphs.
@@ -1508,6 +1581,21 @@ func create_dialogue_ui() -> void:
 		choice.pressed.connect(select_conversation_option.bind(index))
 		dialogue_options.append(choice)
 		stack.add_child(choice)
+	dialogue_activity_status = make_label(15, Color("#bdece2"))
+	dialogue_activity_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	stack.add_child(dialogue_activity_status)
+	for index in range(2):
+		var activity_button := make_button("", Color("#387565"))
+		activity_button.custom_minimum_size = Vector2(0, 48)
+		activity_button.add_theme_font_size_override("font_size", 16)
+		activity_button.pressed.connect(accept_conversation_activity.bind(index))
+		dialogue_activity_buttons.append(activity_button)
+		stack.add_child(activity_button)
+	dialogue_recommend_button = make_button("▶ おすすめの施設・仕事へ案内", Color("#4f6580"))
+	dialogue_recommend_button.custom_minimum_size = Vector2(0, 48)
+	dialogue_recommend_button.add_theme_font_size_override("font_size", 16)
+	dialogue_recommend_button.pressed.connect(follow_conversation_recommendation)
+	stack.add_child(dialogue_recommend_button)
 	dialogue_next = make_button("別の話題", Color("#476053"))
 	dialogue_next.custom_minimum_size = Vector2(0, 44)
 	dialogue_next.pressed.connect(continue_conversation)
@@ -1548,6 +1636,12 @@ func begin_conversation(resident: PocketActor) -> void:
 	dialogue_panel.visible = true
 	sound.play_ui("ui")
 	update_conversation_panel()
+	# Social introductions genuinely lead to another person's conversation,
+	# not a pay-on-proximity placeholder.
+	if is_instance_valid(conversation_activities):
+		var social_result: Dictionary = conversation_activities.meet_resident(resident.resident_id)
+		if not social_result.is_empty():
+			process_activity_result(social_result)
 
 
 func select_conversation_option(index: int) -> void:
@@ -1572,6 +1666,82 @@ func select_conversation_option(index: int) -> void:
 	sound.play_ui("ui")
 	update_conversation_panel()
 	# Persist periodically and on close, not on every displayed paragraph.
+
+
+func suggested_conversation_destination(resident: PocketActor, scenario: int) -> Dictionary:
+	if not is_instance_valid(resident):
+		return {}
+	var candidate_types: Array[String] = []
+	match resident.daily_role:
+		"買い物":
+			candidate_types = ["supermarket", "clothing", "furniture", "market"]
+		"勤務":
+			candidate_types = ["job_board", "office", "garage", "market"]
+		"帰宅":
+			candidate_types = ["apartment", "furniture", "garage"]
+		"外食":
+			candidate_types = ["restaurant", "lounge", "club", "supermarket"]
+		_:
+			candidate_types = ["restaurant", "supermarket", "garage"]
+	var suggested: String = candidate_types[posmod(int(scenario / 10) + resident.resident_id, candidate_types.size())]
+	if suggested == "job_board" and is_instance_valid(neighborhood_jobs):
+		return {"kind": "job_board", "key": "", "title": "地域ジョブ受付", "position": neighborhood_jobs.board_position}
+	var nearest := INF
+	var selected: Dictionary = {}
+	for lot in city.buildings:
+		if String(lot.get("business", "")) != suggested or not lot.has("door"):
+			continue
+		var distance: float = resident.global_position.distance_squared_to(lot["door"])
+		if distance < nearest:
+			nearest = distance
+			selected = lot
+	if selected.is_empty():
+		return {}
+	var business_names := {
+		"supermarket": "スーパー", "clothing": "洋服店", "furniture": "家具店",
+		"market": "市場", "office": "オフィス", "garage": "ガレージ",
+		"apartment": "住居", "restaurant": "飲食店", "lounge": "ラウンジ",
+		"club": "クラブ"
+	}
+	return {
+		"kind": "lot", "key": String(selected["id"]),
+		"title": String(business_names.get(suggested, suggested)),
+		"position": selected["door"]
+	}
+
+
+func follow_conversation_recommendation() -> void:
+	if dialogue_panel == null or not dialogue_panel.visible or dialogue_recommendation.is_empty():
+		return
+	var choice := dialogue_recommendation.duplicate(true)
+	end_conversation()
+	set_city_waypoint(String(choice["kind"]), String(choice["key"]), String(choice["title"]), choice["position"])
+	show_message("会話からの案内：" + String(choice["title"]))
+
+
+func cancel_conversation_activity() -> void:
+	if not is_instance_valid(conversation_activities) or not conversation_activities.abandon():
+		return
+	if navigation_kind == "activity":
+		clear_city_waypoint()
+	else:
+		save_game()
+	show_message("住民の活動を辞退しました")
+
+
+func accept_conversation_activity(index: int) -> void:
+	if dialogue_panel == null or not dialogue_panel.visible or not is_instance_valid(conversation_actor):
+		return
+	if index < 0 or index >= dialogue_activity_offers.size() or not is_instance_valid(conversation_activities):
+		return
+	var offer: Dictionary = dialogue_activity_offers[index]
+	var speaker_id: int = conversation_actor.resident_id
+	if not conversation_activities.accept(String(offer["id"]), speaker_id):
+		return
+	var name: String = String(offer["title"])
+	end_conversation()
+	set_city_waypoint("activity", "", name, conversation_activities.objective_position())
+	show_message("住民の活動を開始：" + name)
 
 
 func continue_conversation() -> void:
@@ -1619,6 +1789,30 @@ func update_conversation_panel() -> void:
 		button.visible = i < conversation_displayed_options.size()
 		if button.visible:
 			button.text = "%d. %s" % [i + 1, String(conversation_displayed_options[i]["text"])]
+	# These are player-operable activities, not new NPC speech.
+	# Keep the 200-topic/2,000-opening authored dialogue tree intact.
+	dialogue_activity_offers.clear()
+	if is_instance_valid(conversation_activities):
+		if conversation_activities.active:
+			dialogue_activity_status.text = "活動進行中：" + conversation_activities.progress_text()
+		else:
+			dialogue_activity_offers = conversation_activities.offers_for(
+				conversation_actor.resident_id, conversation_actor.daily_role,
+				int(conversation_tree.get("scenario_id", 0))
+			)
+			dialogue_activity_status.text = "この住民との会話から始める街の活動" if not dialogue_activity_offers.is_empty() else "この住民から受けられる新しい活動はありません"
+	else:
+		dialogue_activity_status.text = ""
+	dialogue_recommendation = suggested_conversation_destination(conversation_actor, int(conversation_tree.get("scenario_id", 0)))
+	dialogue_recommend_button.visible = not dialogue_recommendation.is_empty()
+	if dialogue_recommend_button.visible:
+		dialogue_recommend_button.text = "▶ おすすめ：%sへ案内" % String(dialogue_recommendation["title"])
+	for i in range(dialogue_activity_buttons.size()):
+		var offer_button: Button = dialogue_activity_buttons[i]
+		offer_button.visible = i < dialogue_activity_offers.size()
+		if offer_button.visible:
+			var offered: Dictionary = dialogue_activity_offers[i]
+			offer_button.text = "▶ %s  ・  報酬 $%d" % [String(offered["title"]), int(offered["reward"])]
 	dialogue_exit.text = "会話を終える"
 
 
@@ -1632,6 +1826,8 @@ func end_conversation() -> void:
 	conversation_tree.clear()
 	conversation_seen.clear()
 	conversation_displayed_options.clear()
+	dialogue_activity_offers.clear()
+	dialogue_recommendation.clear()
 	conversation_node = ""
 	dialogue_panel.visible = false
 	stick_value = Vector2.ZERO
