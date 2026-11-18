@@ -27,3 +27,15 @@ static func mission_reward(distance: float, difficulty: int) -> int:
 
 static func mission_time(distance: float) -> float:
 	return maxf(50.0, distance / 4.0 + 32.0)
+
+
+## Alternating courier contracts make the existing delivery loop less repetitive.
+## Contracts are derived from completed jobs, so older save files remain valid.
+static func delivery_contract(completed: int) -> Dictionary:
+	var contracts: Array[Dictionary] = [
+		{"title": "LOCAL COURIER", "reward_scale": 1.0, "time_scale": 1.0},
+		{"title": "EXPRESS RUN", "reward_scale": 1.4, "time_scale": 0.84},
+		{"title": "DISTRICT TRANSFER", "reward_scale": 1.25, "time_scale": 1.05},
+		{"title": "SPECIAL ORDER", "reward_scale": 1.6, "time_scale": 0.90}
+	]
+	return contracts[posmod(maxi(0, completed), contracts.size())].duplicate()

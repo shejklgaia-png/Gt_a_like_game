@@ -12,16 +12,17 @@ Reviewed `main` at `c34433dbdec8b006ce4cb7bc88b51de20321fc6c` and key scene/game
 - Existing pedestrians intentionally ignore crowd collision layers, to prevent previous crosswalk deadlocks. Avoid re-enabling those collisions without a robust avoidance solution.
 - Existing CI already executes headless Godot 4.4.1 and 4.7.2 smoke/simulation/district/Android/stability scripts; no editor or Android device was available in this one-off working environment.
 
-## B. External research: player opinions vs verified platform advice
+## B. External research: verified discussions and engine guidance (2026-11-18)
 
-The following Reddit discussions represent *individual opinions, not representative player statistics*. Reviewed 2026-11-18:
-- [Cities feel hollow when buildings are static decoration and NPCs are anonymous crowds](https://www.reddit.com/r/gamedev/comments/1j3vz9n/): prefer meaningful locations and interaction affordances.
-- [Free-roam exploration is itself an activity](https://www.reddit.com/r/gamingsuggestions/comments/1w7ti3t/): preserve choice to explore without mandatory quest UI.
-- [Players like worlds that keep changing without their direct action](https://www.reddit.com/r/gamedesign/comments/1xtgspb/): consider routines/reaction chains, but prioritize deterministic cheap simulations on mobile.
-- [Opportunities for progress from independent exploration](https://www.reddit.com/r/gaming/comments/1u54dx4/): short jobs, hidden finds and freedom to ignore them.
-- [Official Godot 4 performance guidance](https://docs.godotengine.org/en/stable/tutorials/performance/optimizing_3d_performance.html): measure mobile bottlenecks; use effective batching, visibility/distance and LOD techniques instead of unbounded actor count.
+Player comments below are *individual experiences*, not a statistically representative audience sample; avoid copying other games' copyrighted content.
+- [What makes an open world actually feel alive?](https://www.reddit.com/r/videogames/comments/1whgo5z/what_makes_an_open_world_actually_feel_alive/): contributors prioritize believable NPC routines, local detail and environmental storytelling, not area size.
+- [Open world games where NPCs do their own thing](https://www.reddit.com/r/gamingsuggestions/comments/15y66ze/open_world_games_where_npcs_kinda_just_do_their/): desire for enterable spaces and visible independent routine.
+- [Games where every NPC has a life and schedule](https://www.reddit.com/r/gamingsuggestions/comments/cu4edd): a concrete player request for NPC identities and continuity.
+- [How to get a player hooked in an open world](https://www.reddit.com/r/gamedesign/comments/1e0mv2l): early-session clarity and social interactions matter to the design question.
+- [Official Godot 4 3D performance optimization](https://docs.godotengine.org/en/stable/tutorials/performance/optimizing_3d_performance.html): render batching, visibility ranges and material costs require measurement; Compatibility renderer has feature limitations.
+- [Official Godot GPU optimization](https://docs.godotengine.org/en/4.3/tutorials/performance/gpu_optimization.html): profile on target mobile GPU; minimize transparency/fill-rate cost.
 
-These findings suggest *density of interactive outcomes and low-friction discovery*, rather than adding empty square kilometers.
+Inference for this project: improve *interactive density, direction, local encounters and legible feedback* before multiplying static buildings. These are hypotheses to validate through playtests, not proven causal effects.
 
 ## C. Roadmap, impact / effort / regression risk
 
@@ -43,10 +44,10 @@ These findings suggest *density of interactive outcomes and low-friction discove
 
 - Analysis: identified source-rooted save/load and camera waypoint defects; prioritized low-regression fixes with tests.
 - Implementation: expanded coordinate bounds to match city ground/perimeter/freeway (without accepting points beyond the map), projected the 8-way destination arrow onto camera right/up, assigned deterministic varied resident walking speeds and occasional non-crosswalk pauses.
-- Verification: added explicit regression assertions to existing headless smoke and simulation scripts. **These test assertions are committed but NOT locally executed** because this environment has no Godot executable and no direct network clone. The PR CI must pass before merging.
+- Verification: added explicit regression assertions to existing headless smoke and simulation scripts. The prior 3-pass improvement reached main in commit `fbc3cdfa736db43e05d3de32fed14736418ecda7` after headless Godot 4.4.1/4.7.2 and Android build CI passed. A real Android playtest remains outstanding.
 
 ### Safety and release rules
-1. Keep this change on a development branch pending CI; do not imply it is merged.
+1. Keep new and unverified changes on a development branch pending CI; do not imply untested changes are merged.
 2. Preserve `main` and existing saves. No third-party GTA assets or licensed content.
 3. Never re-enable person-person physical blocking without proving that sidewalks/crosswalks remain traversable.
 4. Run Godot import, smoke, simulation, Android startup, stability, district tests in CI.
@@ -58,3 +59,33 @@ These findings suggest *density of interactive outcomes and low-friction discove
 2. Build short, optional neighborhood errand micro-missions that re-use the existing commerce and delivery state without forcing the player into a single career loop.
 3. Instrument pedestrians: mean stuck time, crosswalk crossing time, near-collision count and citizen-movement latency (actual phone profiling required).
 4. Add high-contrast contextual interaction hints and a lightweight nearby-activity cue.
+
+## F. Ten-pass development rehearsal (2026-11-18)
+
+Target base: `fbc3cdfa736db43e05d3de32fed14736418ecda7`.
+Work branch: `autodev/2026-11-18-ten-pass-expansion`. Each pass is one *local project-development iteration*, not a separate scheduled automation invocation.
+
+| Pass | Concrete result |
+|---:|---|
+| 01 | Retain downloadable Web export ZIP in CI even when GitHub Pages is not enabled. |
+| 02 | Add four data-driven courier contracts indexed by completed deliveries. |
+| 03 | Different contract clocks and base payouts; no migration needed for prior saves. |
+| 04 | 20% clean-run cash bonus when a parcel is delivered with zero wanted stars. |
+| 05 | HUD contract title, ground-distance arrow, deadline warning color. |
+| 06 | Non-modal first-job instructional hints, without disabling free roaming. |
+| 07 | Give an immediately adjacent parcel interaction precedence over a storefront/NPC. |
+| 08 | Different per-car cruise speeds for the grid and scenic highway. |
+| 09 | Vehicle headway control: 3 forward rays measure closest obstacle and smoothly adjust target cruise speed. |
+| 10 | Expand Godot headless regression tests (courier progression, clean bonus, arrows, parcel/door priority, traffic sensor and pace). |
+
+### Known publishing blocker
+
+On the previous main commit, Web export was successful but `actions/configure-pages@v5` failed with "Get Pages site failed: Not Found". Repository Settings > Pages must be enabled and set to **GitHub Actions** by an administrator. The new `actions/upload-artifact@v4` step makes the generated website downloadable from CI even if Pages remains unavailable. Do not claim a published URL until deployment itself passes.
+
+### Release checklist
+
+- Run GitHub Actions Godot 4.4.1 / 4.7.2 import, smoke, simulation, district, Android startup and sustained-play tests.
+- Check Android APK export; Web export artifact should be uploaded before Pages setup.
+- On real Android phone: verify the first parcel remains visible and collectible, driving input, alley/curb safety, police pursuit, indoor merchant dialogue, and performance at rush-hour.
+- Watch long-term vehicle following for headway stability and unintended stops. If stalls are detected, increase temporal smoothing or cap waiting/replanning time.
+- No use of third-party commercial IP assets. Do not modify SERA.

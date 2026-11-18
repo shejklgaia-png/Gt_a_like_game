@@ -26,6 +26,7 @@ var total_driven: float = 0.0
 var wheels: Array[MeshInstance3D] = []
 var sensor_timer: float = 0.0
 var front_blocked: bool = false
+var front_clearance: float = 13.0
 var stationary_time: float = 0.0
 
 
@@ -93,28 +94,35 @@ func entrance_point() -> Vector3:
 	return global_position + global_transform.basis.x * -2.05 + global_transform.basis.z * -0.50
 
 
-func pedestrian_ahead() -> bool:
+func nearest_forward_obstacle() -> float:
 	if occupied or being_stolen:
-		return false
-	# Three bumper rays cover the width of the car, not only the centerline.
+		return 13.0
+	# Measure actual clearance across the bumper instead of braking at a
+	# single binary detection distance. Geometry is handled by body collision.
 	var forward := -global_transform.basis.z
+	var nearest := 13.0
 	for lateral in [-0.72, 0.0, 0.72]:
 		var origin: Vector3 = global_position + Vector3(0, 0.05, 0) + global_transform.basis.x * float(lateral) + forward * 2.25
-		var tip: Vector3 = origin + forward * 7.4
+		var tip: Vector3 = origin + forward * 13.0
 		var params := PhysicsRayQueryParameters3D.create(origin, tip)
 		params.exclude = [get_rid()]
-		params.collision_mask = 14 # Ignore ground/architecture in pedestrian sensor.
+		params.collision_mask = 14
 		var result := get_world_3d().direct_space_state.intersect_ray(params)
 		if result.is_empty():
 			continue
 		var collider: Object = result.get("collider")
-		if collider is PocketHero and not (collider as PocketHero).dead:
-			return true
-		if collider is PocketActor and not (collider as PocketActor).dead:
-			return true
-		if collider is PocketVehicle:
-			return true
-	return false
+		if collider is PocketHero and (collider as PocketHero).dead:
+			continue
+		if collider is PocketActor and (collider as PocketActor).dead:
+			continue
+		if collider is PocketHero or collider is PocketActor or collider is PocketVehicle:
+			var hit_position: Vector3 = result["position"]
+			nearest = minf(nearest, origin.distance_to(hit_position))
+	return nearest
+
+
+func pedestrian_ahead() -> bool:
+	return nearest_forward_obstacle() < 7.4
 
 
 func _physics_process(delta: float) -> void:
@@ -151,8 +159,10 @@ func _physics_process(delta: float) -> void:
 		sensor_timer -= delta
 		if sensor_timer <= 0.0:
 			sensor_timer = 0.12
-			front_blocked = pedestrian_ahead()
-		drive_speed = move_toward(drive_speed, 0.0 if front_blocked else npc_speed, delta * (25.0 if front_blocked else 8.0))
+			front_clearance = nearest_forward_obstacle()
+			front_blocked = front_clearance < 3.1
+		var flow_speed := clampf((front_clearance - 2.8) * 2.0, 0.0, npc_speed)
+		drive_speed = move_toward(drive_speed, flow_speed, delta * (25.0 if flow_speed < drive_speed else 8.0))
 		velocity = heading * drive_speed
 	else:
 		var heading := Vector3.ZERO
@@ -164,9 +174,11 @@ func _physics_process(delta: float) -> void:
 		sensor_timer -= delta
 		if sensor_timer <= 0.0:
 			sensor_timer = 0.12
-			front_blocked = pedestrian_ahead()
+			front_clearance = nearest_forward_obstacle()
+			front_blocked = front_clearance < 3.1
 		var traffic_red := TrafficRules.must_stop_car(axis, travel, global_position)
-		var desired := 0.0 if front_blocked or traffic_red else npc_speed
+		var following_speed := clampf((front_clearance - 2.8) * 2.0, 0.0, npc_speed)
+		var desired := 0.0 if traffic_red else following_speed
 		drive_speed = move_toward(drive_speed, desired, delta * (26.0 if desired == 0.0 else 8.0))
 		velocity = heading * drive_speed
 		# Smoothly recover the correct lane after side impacts.

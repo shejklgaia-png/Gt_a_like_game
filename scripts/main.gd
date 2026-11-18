@@ -638,6 +638,11 @@ func interaction() -> void:
 	if car_driven != null:
 		exit_car()
 		return
+	# A parcel almost underfoot should not be stolen by the proximity
+	# radius of an adjacent building entrance, parked car, or resident.
+	if hero.global_position.distance_to(mission_point) <= 2.8:
+		advance_delivery()
+		return
 	var door := city.closest_door(hero.global_position)
 	if wanted == 0:
 		var resident := city.closest_resident(hero.global_position)
@@ -814,16 +819,23 @@ func advance_delivery() -> void:
 		mission_point = sites[mission_last_index]
 		var starting := car_driven.global_position if car_driven != null else hero.global_position
 		var distance := starting.distance_to(mission_point)
-		mission_limit = GameData.mission_time(distance)
-		mission_reward = GameData.mission_reward(distance, mini(5, int(deliveries / 3)))
-		show_message("DELIVERY STARTED  |  $%d REWARD" % mission_reward)
+		var contract: Dictionary = GameData.delivery_contract(deliveries)
+		mission_limit = maxf(35.0, GameData.mission_time(distance) * float(contract["time_scale"]))
+		mission_reward = maxi(125, roundi(float(GameData.mission_reward(distance, mini(5, int(deliveries / 3)))) * float(contract["reward_scale"])))
+		show_message("%s  |  $%d REWARD" % [String(contract["title"]), mission_reward])
 	else:
 		mission_stage = 0
 		deliveries += 1
-		cash += mission_reward
-		total_earnings += mission_reward
+		# Reward non-violent play without penalizing free-roam or police chases.
+		var clean_bonus: int = roundi(float(mission_reward) * 0.20) if wanted == 0 else 0
+		var payout: int = mission_reward + clean_bonus
+		cash += payout
+		total_earnings += payout
 		sound.play_ui("cash")
-		show_message("DELIVERED +$%d" % mission_reward)
+		if clean_bonus > 0:
+			show_message("DELIVERED +$%d  |  CLEAN BONUS +$%d" % [payout, clean_bonus])
+		else:
+			show_message("DELIVERED +$%d" % payout)
 		mission_limit = 0.0
 		mission_point = GameData.delivery_sites()[7]
 		save_game()
@@ -1012,7 +1024,11 @@ func update_hud() -> void:
 	var current_position := car_driven.global_position if car_driven != null else hero.global_position
 	var waypoint := mission_point - current_position
 	var heading := waypoint_arrow(waypoint)
-	mission_label.text = "DELIVERY %s %dm  •  %s [%d] %s" % [heading, int(waypoint.length()), "PICKUP" if mission_stage == 0 else "DROP OFF", deliveries, ("%.0fs" % mission_limit) if mission_stage == 1 else ""]
+	var contract: Dictionary = GameData.delivery_contract(deliveries)
+	var ground_distance := Vector2(waypoint.x, waypoint.z).length()
+	var objective := "PICK UP" if mission_stage == 0 else ("DROP OFF %.0fs" % maxf(0.0, mission_limit))
+	mission_label.text = "#%d %s  %s %dm  •  %s" % [deliveries + 1, String(contract["title"]), heading, roundi(ground_distance), objective]
+	mission_label.add_theme_color_override("font_color", Color("#ff8585") if mission_stage == 1 and mission_limit <= 15.0 else Color("#f5d58c"))
 	var aim_dir := -camera.global_transform.basis.z
 	aim_dir.y = 0.0
 	aim_dir = aim_dir.normalized()
@@ -1029,6 +1045,11 @@ func update_hud() -> void:
 	if not indoors and car_driven == null and wanted == 0:
 		nearby_resident = city.closest_resident(hero.global_position)
 	var caption := "MOVE: PAD  •  CAMERA: SWIPE SCENE  •  ACTION"
+	# Introduce the first achievable goal without a modal tutorial.
+	if deliveries == 0 and mission_stage == 0:
+		caption = "FIRST JOB: FOLLOW GOLD PARCEL • PRESS ACTION"
+	elif deliveries == 0 and mission_stage == 1:
+		caption = "FIRST JOB: FOLLOW ARROW • DELIVER BEFORE TIME RUNS OUT"
 	if hero.dead:
 		caption = "WASTED  •  RESPAWNING"
 	elif carjack_busy:
@@ -1046,6 +1067,8 @@ func update_hud() -> void:
 			caption = "RETURN TO THE EXIT MARKER"
 	elif car_driven != null:
 		caption = "ACTION: EXIT CAR  •  STICK TO DRIVE"
+	elif hero.global_position.distance_to(mission_point) <= 2.8:
+		caption = "ACTION: COLLECT PARCEL" if mission_stage == 0 else "ACTION: DELIVER PARCEL"
 	elif nearby_resident != null and (nearby_door.is_empty() or hero.global_position.distance_to(nearby_door["door"]) > 1.6):
 		var profile: Dictionary = ResidentDialogue.make_profile(nearby_resident.resident_id)
 		caption = "ACTION: 話す - %s" % String(profile["name"])

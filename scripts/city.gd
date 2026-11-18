@@ -237,6 +237,9 @@ func spawn_traffic() -> void:
 		var car: PocketVehicle = VehicleScene.new()
 		var paint := Color.from_hsv(rng.randf(), 0.48, 0.85)
 		car.setup(axis, travel, lane, paint)
+		# Different travel pace prevents identical traffic convoys on every road.
+		# Scenic ring/highway traffic gets a modest speed lift over city streets.
+		car.npc_speed = rng.randf_range(11.5, 14.0) if i >= 14 else rng.randf_range(8.2, 11.6)
 		if axis == 0:
 			car.position = Vector3(lane, 1.00, rng.randf_range(-102.0, 102.0))
 		else:
