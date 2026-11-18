@@ -3,6 +3,7 @@ extends SceneTree
 ## rewards. Dedicated user:// file prevents modifying a real player's save.
 
 const Dialogue = preload("res://scripts/resident_dialogue.gd")
+const ActivityScript = preload("res://scripts/conversation_activities.gd")
 
 
 func _initialize() -> void:
@@ -35,7 +36,7 @@ func check() -> void:
 		fail("Existing 200 authored conversation subjects were modified", 452)
 		return
 	var activities: PocketConversationActivities = game.conversation_activities
-	if not is_instance_valid(activities) or activities.TYPES.size() != 7:
+	if not is_instance_valid(activities) or ActivityScript.TYPES.size() != 7:
 		fail("Seven independently playable resident activities are missing", 453)
 		return
 	if activities.active or activities.total_completed != 0:
