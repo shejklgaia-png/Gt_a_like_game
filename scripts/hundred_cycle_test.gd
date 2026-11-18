@@ -106,6 +106,16 @@ func run_cycles() -> void:
 				finds.refresh()
 				game.load_game()
 				ok = finds.count_collected() == 10 and finds.collected.has(finds.site_ids[case_index]) and not finds.markers[case_index].visible
+				# The final scenario also checks the previously unsafe elevated-road exit.
+				if case_index == 9:
+					var freeway_car: PocketVehicle = town.cars[0]
+					freeway_car.global_position = Vector3(0.0, 8.1, 137.0)
+					freeway_car.rotation.y = 0.0
+					freeway_car.occupied = true
+					game.car_driven = freeway_car
+					game.hero.global_position = Vector3(0.0, 8.4, 137.0)
+					game.exit_car()
+					ok = ok and game.car_driven == null and game.hero.global_position.y > 6.5
 
 		if not verify(ok, cycle_id, "group %d, variation %d" % [group, case_index]):
 			return
