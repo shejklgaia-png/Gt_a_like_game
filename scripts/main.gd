@@ -1072,6 +1072,16 @@ func enter_interior(door: Dictionary) -> void:
 	sky.environment.background_color = Color("#373b40")
 	hero.global_position = InteriorScript.INTERIOR_ORIGIN + Vector3(0, 0.35, 6.5)
 	interior.arm_hostiles(hero)
+	var business: String = String(door.get("business", "general"))
+	quest_event("interior_enter", {"business": business})
+	if business == "apartment":
+		quest_event("residence_enter")
+	if business in ["supermarket", "convenience", "market", "restaurant", "clothing", "furniture", "lounge", "club", "gun"]:
+		quest_event("store_enter", {"business": business})
+	for occupant in interior.occupants:
+		if is_instance_valid(occupant) and occupant.mafia and not occupant.dead:
+			quest_event("interior_ambush", {"business": business})
+			break
 	hero.velocity = Vector3.ZERO
 	stick_value = Vector2.ZERO
 
@@ -1086,6 +1096,7 @@ func leave_interior() -> void:
 	sky.environment.background_color = Color("#819fb4")
 	hero.global_position = outdoor_exit + Vector3(0, 0.38, -1.8)
 	hero.velocity = Vector3.ZERO
+	quest_event("interior_exit")
 	active_building = ""
 	save_game()
 
@@ -1798,6 +1809,7 @@ func begin_conversation(resident: PocketActor) -> void:
 	dialogue_panel.visible = true
 	sound.play_ui("ui")
 	update_conversation_panel()
+	quest_event("conversation", {"resident_id": resident.resident_id, "role": resident.daily_role})
 	# Social introductions genuinely lead to another person's conversation,
 	# not a pay-on-proximity placeholder.
 	if is_instance_valid(conversation_activities):
@@ -1827,6 +1839,7 @@ func select_conversation_option(index: int) -> void:
 		resident_relations[key] = record
 	sound.play_ui("ui")
 	update_conversation_panel()
+	quest_event("conversation_deep", {"branch": destination, "resident_id": conversation_actor.resident_id if is_instance_valid(conversation_actor) else -1})
 	# Persist periodically and on close, not on every displayed paragraph.
 
 
@@ -2069,6 +2082,7 @@ func purchase_gun(gun_name: String) -> void:
 			hero.equip_weapon(gun_name)
 		sound.play_ui("cash")
 		ammunition[gun_name] = int(ammunition.get(gun_name, 0)) + int(gun["ammo"])
+		quest_event("weapon_bought", {"item": gun_name, "new": not already_owned})
 		save_game()
 		refresh_shop_ui()
 		return
@@ -2254,6 +2268,7 @@ func select_commerce_option(index: int) -> void:
 			cash -= GARAGE_CAR_PRICE
 			garage_owned = true
 			spawn_garage_car()
+			quest_event("garage_action", {"kind": "purchase"})
 			save_game()
 			sound.play_ui("cash")
 			close_commerce()
@@ -2277,6 +2292,7 @@ func select_commerce_option(index: int) -> void:
 				return
 			cash -= cost
 			purchased_homes[String(commerce_lot["id"])] = true
+			quest_event("home_bought", {"lot_id": String(commerce_lot["id"])})
 			save_game()
 			var bought: Dictionary = commerce_lot.duplicate(true)
 			open_commerce_for(bought)
@@ -2291,12 +2307,14 @@ func select_commerce_option(index: int) -> void:
 			if bool(item.get("furniture", false)):
 				var kind: String = String(item["id"])
 				furniture_inventory[kind] = int(furniture_inventory.get(kind, 0)) + 1
+				quest_event("furniture_bought", {"item": kind})
 			elif item.has("heal"):
 				hero.hp = minf(hero.max_hp, hero.hp + float(item["heal"]))
 			elif item.has("outfit"):
 				outfit_color = String(item["outfit"])
 				apply_outfit()
 			commerce_header.text = "購入済み / 所持金 $" + str(cash)
+			quest_event("store_purchase", {"business": String(commerce_lot.get("business", "")), "item": String(item.get("id", ""))})
 			sound.play_ui("cash")
 			save_game()
 		"place":
@@ -2327,6 +2345,7 @@ func place_home_item(kind: String) -> void:
 	items.append(record)
 	placed_furniture[active_building] = items
 	furniture_inventory[kind] = int(furniture_inventory[kind]) - 1
+	quest_event("furniture_placed", {"item": kind})
 	save_game()
 	close_commerce()
 	show_message("FURNITURE PLACED")
