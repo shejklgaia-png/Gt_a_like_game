@@ -1383,6 +1383,8 @@ func update_hud() -> void:
 			caption = "RETURN TO THE EXIT MARKER"
 	elif car_driven != null:
 		caption = "ACTION: EXIT CAR  •  STICK TO DRIVE"
+	elif is_instance_valid(conversation_activities) and conversation_activities.active and Vector2(hero.global_position.x, hero.global_position.z).distance_to(Vector2(conversation_activities.objective_position().x, conversation_activities.objective_position().z)) <= 3.0:
+		caption = "ACTION: 紹介された住民と話す" if conversation_activities.kind == "meet" else "ACTION: 住民の依頼を進める"
 	elif is_instance_valid(neighborhood_jobs) and neighborhood_jobs.close_to_job(hero.global_position):
 		caption = "ACTION: " + neighborhood_jobs.action_hint()
 	elif street_finds.nearest(hero.global_position) >= 0:
