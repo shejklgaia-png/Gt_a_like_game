@@ -5,6 +5,7 @@ const Shapes = preload("res://scripts/shape_factory.gd")
 const TrafficRules = preload("res://scripts/traffic_rules.gd")
 var occupied: bool = false
 var being_stolen: bool = false
+var legal_owner: bool = false
 var npc_speed: float = 10.0
 var drive_speed: float = 0.0
 var axis: int = 0
@@ -137,6 +138,10 @@ func _physics_process(delta: float) -> void:
 		var turn_factor := clampf(absf(drive_speed) / 8.0, 0.0, 1.0)
 		rotation.y -= drive_input.x * delta * 1.55 * turn_factor * (1.0 if drive_speed >= 0 else -1.0)
 		velocity = -global_transform.basis.z * drive_speed
+	elif legal_owner:
+		# A privately owned car stays parked rather than joining free-roaming AI.
+		drive_speed = move_toward(drive_speed, 0.0, delta * 26.0)
+		velocity = Vector3.ZERO
 	elif not npc_route.is_empty():
 		if route_index < 0 or route_index >= npc_route.size():
 			route_index = 0
