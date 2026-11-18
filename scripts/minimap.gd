@@ -8,6 +8,7 @@ var refresh_clock: float = 0.0
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	clip_contents = true # Keep distant A* map lines inside the minimap.
 
 func _process(delta: float) -> void:
 	refresh_clock += delta
@@ -109,13 +110,21 @@ func _draw() -> void:
 	var marker := to_map(waypoint, focus)
 	marker = marker.clamp(Vector2(7, 7), size - Vector2(7, 7))
 	draw_circle(marker, 5.0, Color("#ffd46a"))
-	# The manually selected CITY GPS stands out even when the destination is
-	# far outside this compact minimap. An edge-clamped ray gives direction.
-	if game.navigation_kind != "":
+	# Draw the remaining building-avoiding route rather than a single
+	# straight line through shops and apartments. Physics is unaffected.
+	if game.navigation_kind != "" and game.city_route != null:
 		var city_destination: Vector3 = game.city_waypoint_point()
+		var breadcrumb: PackedVector2Array = game.city_route.visible_route(focus, city_destination)
+		for index in range(1, breadcrumb.size()):
+			var prev := to_map(Vector3(breadcrumb[index - 1].x, 0, breadcrumb[index - 1].y), focus)
+			var next := to_map(Vector3(breadcrumb[index].x, 0, breadcrumb[index].y), focus)
+			draw_line(prev, next, Color("#4bdac4", 0.88), 2.6, true)
 		var raw_point: Vector2 = to_map(city_destination, focus)
 		var city_point := raw_point.clamp(Vector2(9, 9), size - Vector2(9, 9))
-		draw_line(size * 0.5, city_point, Color("#54e4cb"), 2.2, true)
+		# If a route is unavailable (e.g. a temporary map rebuild),
+		# retain a direct bearing instead of leaving GPS invisible.
+		if breadcrumb.size() < 2:
+			draw_line(size * 0.5, city_point, Color("#54e4cb", 0.7), 1.8, true)
 		draw_arc(city_point, 7.3, 0.0, TAU, 16, Color("#d9fff2"), 2.0)
 		draw_circle(city_point, 4.5, Color("#3ad8c2"))
 	draw_circle(size * 0.5, 5.0, Color("#71fff1"))
