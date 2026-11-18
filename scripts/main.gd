@@ -21,6 +21,8 @@ const ConversationActivitiesScript = preload("res://scripts/conversation_activit
 const CityPhoneScript = preload("res://scripts/city_phone.gd")
 const CityRouteScript = preload("res://scripts/city_route.gd")
 const SidewalkRouteScript = preload("res://scripts/sidewalk_route.gd")
+const QuestDirectorScript = preload("res://scripts/quest_director.gd")
+const QuestIncidentsScript = preload("res://scripts/quest_incidents.gd")
 
 var WEAPONS: Array[Dictionary] = GameData.weapons()
 const SAVE_PATH := "user://pocket_district_save.json"
@@ -74,6 +76,14 @@ var neighborhood_jobs: PocketNeighborhoodJobs
 var neighborhood_job_state: Dictionary = {}
 var conversation_activities: PocketConversationActivities
 var conversation_activity_state: Dictionary = {}
+var quest_director: PocketQuestDirector
+var quest_state: Dictionary = {}
+var quest_incidents: PocketQuestIncidents
+var quest_scan_clock: float = 0.0
+var quest_nearby_npc_id: int = -1
+var quest_nearby_district: String = ""
+var quest_last_driven: float = 0.0
+var quest_driving_start_meter: float = 0.0
 var deliveries: int = 0
 var autosave_clock: float = 0.0
 var camera_yaw: float = 0.0
@@ -198,6 +208,8 @@ func _ready() -> void:
 	hero.died.connect(on_hero_died)
 	for person in city.people:
 		connect_actor(person)
+	for automobile in city.cars:
+		connect_vehicle(automobile)
 	load_game()
 	if garage_owned:
 		spawn_garage_car()
@@ -210,6 +222,16 @@ func _ready() -> void:
 	conversation_activities.name = "ConversationActivities"
 	city.add_child(conversation_activities)
 	conversation_activities.setup(city.buildings, city.people, conversation_activity_state)
+	quest_director = QuestDirectorScript.new()
+	quest_director.name = "QuestDirector"
+	city.add_child(quest_director)
+	quest_director.setup(city.buildings, city.people, quest_state)
+	quest_director.started.connect(on_quest_started)
+	quest_director.advanced.connect(on_quest_advanced)
+	quest_director.finished.connect(on_quest_finished)
+	quest_incidents = QuestIncidentsScript.new()
+	city.add_child(quest_incidents)
+	quest_incidents.setup(self)
 	apply_outfit()
 	if mobile_optimization_enabled:
 		city.update_mobile_activity(hero.global_position)
@@ -249,6 +271,99 @@ func setup_lighting() -> void:
 func connect_actor(actor: PocketActor) -> void:
 	actor.injured.connect(on_actor_injured)
 	actor.died.connect(on_actor_died)
+
+
+func connect_vehicle(car: PocketVehicle) -> void:
+	if is_instance_valid(car) and not car.ran_into_hero.is_connected(on_car_collision):
+		car.ran_into_hero.connect(on_car_collision)
+
+
+func on_car_collision(vehicle: PocketVehicle, speed: float) -> void:
+	if not is_instance_valid(hero) or hero.dead or car_driven != null or indoors:
+		return
+	# Speed-limited hit with a car is both a gameplay event and real damage.
+	hero.hurt(clampf(speed * 0.70, 3.0, 18.0))
+	quest_event("vehicle_collision", {"speed": speed})
+	show_message("交通事故：安全な場所に移動してください")
+
+
+func quest_event(event_name: String, details: Dictionary = {}) -> void:
+	if is_instance_valid(quest_director):
+		quest_director.on_event(event_name, details)
+
+
+func on_quest_started(quest: Dictionary) -> void:
+	var title := String(quest.get("title", ""))
+	if String(quest.get("trigger", "")) == "npc_call":
+		var giver_id: int = int(quest.get("record", {}).get("giver", -1))
+		var speaker: String = String(ResidentDialogue.make_profile(giver_id)["name"]) if giver_id >= 0 else "街の住民"
+		# Use this quest's unique authored premise, not a stock NPC line.
+		show_message("%s：%s" % [speaker, String(quest.get("hook", title))])
+		display_message_time = 12.0
+	else:
+		show_message("新しい出来事：" + title + "  |  CITY→依頼")
+		display_message_time = 9.0
+	# Do not override a route the player explicitly selected.
+	if navigation_kind == "":
+		var record: Dictionary = quest.get("record", {})
+		var target: Dictionary = quest_waypoint(String(record.get("id", "")))
+		if not target.is_empty():
+			set_city_waypoint("quest", String(record["id"]), title, target["point"])
+	save_game()
+
+
+func on_quest_advanced(quest: Dictionary) -> void:
+	if navigation_kind == "quest" and navigation_id == String(quest.get("id", "")):
+		var target: Dictionary = quest_waypoint(navigation_id)
+		if target.is_empty():
+			clear_city_waypoint()
+		else:
+			navigation_position = target["point"]
+			city_route.clear()
+			walk_route.clear()
+	show_message("依頼進行：" + String(quest.get("title", "")))
+	display_message_time = 5.5
+	save_game()
+
+
+func on_quest_finished(quest: Dictionary) -> void:
+	var payout := maxi(0, int(quest.get("reward", 0)))
+	cash += payout
+	total_earnings += payout
+	sound.play_ui("cash")
+	if navigation_kind == "quest" and navigation_id == String(quest.get("id", "")):
+		clear_city_waypoint()
+	show_message("依頼完了：" + String(quest.get("title", "")) + "  +$" + str(payout))
+	display_message_time = 7.0
+	save_game()
+
+
+func quest_waypoint(quest_id: String) -> Dictionary:
+	if not is_instance_valid(quest_director):
+		return {}
+	for quest in quest_director.active:
+		if String(quest.get("id", "")) == quest_id:
+			var stage: Dictionary = quest_director.stage_for(quest)
+			if String(stage.get("event", "")) == "police_contact" and is_instance_valid(quest_incidents) and is_instance_valid(quest_incidents.patrol):
+				return {"point": quest_incidents.patrol.global_position, "label": "巡回警官と話す"}
+			if String(stage.get("event", "")) == "furniture_placed" and not purchased_homes.is_empty():
+				for lot in city.buildings:
+					if purchased_homes.has(String(lot["id"])):
+						return {"point": lot["door"], "label": "購入済みの住居で家具を配置"}
+			return quest_director.waypoint(
+				quest, current_travel_position(), garage_car,
+				neighborhood_jobs.board_position if is_instance_valid(neighborhood_jobs) else Vector3.ZERO,
+				mission_point
+			)
+	return {}
+
+
+func cancel_quest(quest_id: String) -> void:
+	if is_instance_valid(quest_director) and quest_director.abandon(quest_id):
+		if navigation_kind == "quest" and navigation_id == quest_id:
+			clear_city_waypoint()
+		show_message("依頼を中断しました：" + quest_id)
+		save_game()
 
 
 func _physics_process(delta: float) -> void:
@@ -307,6 +422,7 @@ func _physics_process(delta: float) -> void:
 func _process(delta: float) -> void:
 	if hero == null:
 		return
+	update_quest_world(delta)
 	if mobile_optimization_enabled and not indoors:
 		mobile_lod_clock += delta
 		if mobile_lod_clock >= 0.6:
@@ -338,6 +454,7 @@ func _process(delta: float) -> void:
 			wanted_idle = 0.0
 			if wanted == 0:
 				wanted_cleanup_clock = 0.0
+				quest_event("wanted_cleared")
 	elif wanted == 0:
 		wanted_cleanup_clock += delta
 		if wanted_cleanup_clock > 2.0:
@@ -366,6 +483,49 @@ func _process(delta: float) -> void:
 	if hud_update_clock > 0.11:
 		hud_update_clock = 0.0
 		update_hud()
+
+func update_quest_world(delta: float) -> void:
+	if not is_instance_valid(quest_director) or indoors or hero.dead:
+		return
+	if is_instance_valid(car_driven):
+		var distance := maxf(0.0, car_driven.total_driven - quest_last_driven)
+		quest_last_driven = car_driven.total_driven
+		if distance > 0.005:
+			quest_driving_start_meter += distance
+			var start_ready := quest_driving_start_meter >= 45.0
+			if start_ready:
+				quest_driving_start_meter = 0.0
+			quest_event("driving", {"amount": distance, "ready": start_ready})
+	else:
+		quest_last_driven = 0.0
+		quest_driving_start_meter = 0.0
+	quest_scan_clock += delta
+	if quest_scan_clock < 0.8:
+		return
+	quest_scan_clock = 0.0
+	var player_at: Vector3 = current_travel_position()
+	if is_instance_valid(car_driven):
+		quest_nearby_npc_id = -1
+	else:
+		var candidate: PocketActor = city.closest_resident(player_at, 4.2)
+		var candidate_id: int = candidate.resident_id if is_instance_valid(candidate) else -1
+		if candidate_id >= 0 and candidate_id != quest_nearby_npc_id:
+			quest_event("npc_call", {"resident_id": candidate_id, "role": candidate.daily_role})
+		quest_nearby_npc_id = candidate_id
+	var nearest := INF
+	var district := ""
+	for lot in city.buildings:
+		var entrance: Vector3 = lot["door"]
+		var difference := Vector2(player_at.x - entrance.x, player_at.z - entrance.z).length_squared()
+		if difference < nearest:
+			nearest = difference
+			district = String(lot["district"])
+	if nearest > 1600.0:
+		district = ""
+	if not district.is_empty() and district != quest_nearby_district:
+		quest_event("district_visit", {"district": district})
+	quest_nearby_district = district
+
 
 func read_motion() -> Vector2:
 	var vector := stick_value
@@ -559,6 +719,7 @@ func finish_reload() -> void:
 	reload_weapon_id = ""
 
 func on_hero_damaged(points: float) -> void:
+	quest_event("hero_damaged", {"amount": points})
 	if dialogue_panel != null and dialogue_panel.visible:
 		end_conversation()
 	sound.play("hurt", hero.global_position, -8.0)
@@ -611,8 +772,11 @@ func on_actor_died(actor: PocketActor) -> void:
 
 
 func add_wanted(levels: int) -> void:
+	var previous := wanted
 	wanted = clampi(wanted + levels, 0, 5)
 	wanted_idle = 0.0
+	if wanted > previous:
+		quest_event("wanted_raised", {"level": wanted})
 
 
 func busted() -> void:
@@ -680,6 +844,7 @@ func interaction() -> void:
 					looted_buildings.append(active_building)
 				sound.play_ui("cash")
 				show_message("FOUND SUPPLIES +$%d" % reward)
+				quest_event("interior_loot", {"reward": reward, "business": active_building})
 				save_game()
 		elif interior.exit_near(hero.global_position):
 			leave_interior()
@@ -693,6 +858,15 @@ func interaction() -> void:
 	if car_driven != null:
 		exit_car()
 		return
+	# Officer contact is a real ACTION event, not a proximity guess.
+	if is_instance_valid(quest_incidents) and wanted == 0:
+		var patrol: PocketActor = quest_incidents.nearest_officer(hero.global_position)
+		if is_instance_valid(patrol):
+			var active_before := quest_director.active.size()
+			quest_event("police_contact")
+			if quest_director.active.size() == active_before:
+				show_message("巡回警官：街の情報を確認しました")
+			return
 	# Social introductions require a real conversation with the designated
 	# citizen. Give that NPC priority over adjacent storefronts and caches.
 	if is_instance_valid(conversation_activities) and conversation_activities.active and conversation_activities.kind == "meet":
@@ -721,6 +895,8 @@ func interaction() -> void:
 			else:
 				sound.play_ui("ui")
 			show_message(String(side_job_result["message"]))
+			if String(side_job_result.get("event", "")) == "finish":
+				quest_event("sidejob_completed", {"reward": side_reward})
 			save_game()
 			return
 	# Optional city discoveries reward exploring back streets.
@@ -733,6 +909,7 @@ func interaction() -> void:
 			total_earnings += found_reward
 			sound.play_ui("cash")
 			show_message("STREET FIND +$%d  (%d/%d)" % [found_reward, street_finds.count_collected(), street_finds.total_count()])
+			quest_event("street_find", {"reward": found_reward})
 			save_game()
 		return
 	# A parcel almost underfoot should not be stolen by the proximity
@@ -747,6 +924,10 @@ func interaction() -> void:
 			begin_conversation(resident)
 			return
 	if not door.is_empty():
+		var business: String = String(door.get("business", ""))
+		quest_event("lot_action", {"business": business})
+		if business == "garage":
+			quest_event("garage_action")
 		if bool(door["shop"]):
 			open_shop()
 		elif String(door.get("business", "")) in ["apartment", "garage"] or Stores.is_retail(String(door.get("business", ""))):
@@ -782,6 +963,7 @@ func spawn_garage_car() -> void:
 	garage_car.position = garage_saved_position if garage_saved_position != Vector3.ZERO else garage_spawn_position()
 	garage_car.rotation.y = garage_saved_yaw
 	city.car_root.add_child(garage_car)
+	connect_vehicle(garage_car)
 
 
 func closest_usable_car(at: Vector3, max_distance: float = 4.5) -> PocketVehicle:
@@ -822,6 +1004,9 @@ func enter_car(car: PocketVehicle) -> void:
 		engine_audio.play()
 		car.open_driver_door(false)
 		sound.play("car_door", car.global_position)
+		quest_last_driven = car.total_driven
+		quest_driving_start_meter = 0.0
+		quest_event("car_entered", {"ownership": "owned" if car.legal_owner else "unowned"})
 		hero.stop_carjack()
 		hero.visible = false
 		var collider := hero.get_node("CollisionShape3D") as CollisionShape3D
@@ -911,6 +1096,16 @@ func enter_interior(door: Dictionary) -> void:
 	sky.environment.background_color = Color("#373b40")
 	hero.global_position = InteriorScript.INTERIOR_ORIGIN + Vector3(0, 0.35, 6.5)
 	interior.arm_hostiles(hero)
+	var business: String = String(door.get("business", "general"))
+	quest_event("interior_enter", {"business": business})
+	if business == "apartment":
+		quest_event("residence_enter")
+	if business in ["supermarket", "convenience", "market", "restaurant", "clothing", "furniture", "lounge", "club", "gun"]:
+		quest_event("store_enter", {"business": business})
+	for occupant in interior.occupants:
+		if is_instance_valid(occupant) and occupant.mafia and not occupant.dead:
+			quest_event("interior_ambush", {"business": business})
+			break
 	hero.velocity = Vector3.ZERO
 	stick_value = Vector2.ZERO
 
@@ -925,6 +1120,7 @@ func leave_interior() -> void:
 	sky.environment.background_color = Color("#819fb4")
 	hero.global_position = outdoor_exit + Vector3(0, 0.38, -1.8)
 	hero.velocity = Vector3.ZERO
+	quest_event("interior_exit")
 	active_building = ""
 	save_game()
 
@@ -976,6 +1172,7 @@ func advance_delivery() -> void:
 			show_message("DELIVERED +$%d  |  CLEAN BONUS +$%d" % [payout, clean_bonus])
 		else:
 			show_message("DELIVERED +$%d" % payout)
+		quest_event("delivery_completed", {"reward": payout})
 		mission_limit = 0.0
 		mission_point = GameData.delivery_sites()[7]
 		save_game()
@@ -1019,7 +1216,7 @@ func active_city_route() -> RefCounted:
 
 func set_city_waypoint(kind: String, key: String, title: String, point: Vector3) -> void:
 	# The phone sets a route, not fast travel or remote shopping.
-	if not kind in ["delivery", "side_job", "job_board", "lot", "owned_car", "cache", "resident", "activity"]:
+	if not kind in ["delivery", "side_job", "job_board", "lot", "owned_car", "cache", "resident", "activity", "quest"]:
 		return
 	navigation_kind = kind
 	navigation_id = key
@@ -1052,6 +1249,10 @@ func city_waypoint_point() -> Vector3:
 		"activity":
 			if is_instance_valid(conversation_activities) and conversation_activities.active:
 				return conversation_activities.objective_position()
+		"quest":
+			var destination: Dictionary = quest_waypoint(navigation_id)
+			if not destination.is_empty():
+				return destination["point"]
 		"side_job":
 			if is_instance_valid(neighborhood_jobs):
 				return neighborhood_jobs.objective_position()
@@ -1116,7 +1317,7 @@ func load_game() -> void:
 			garage_saved_position = saved_point
 	garage_saved_yaw = float(decoded.get("garage_yaw", PI * 0.5))
 	navigation_kind = String(decoded.get("nav_kind", ""))
-	if not navigation_kind in ["delivery", "side_job", "job_board", "lot", "owned_car", "cache", "resident", "activity"]:
+	if not navigation_kind in ["delivery", "side_job", "job_board", "lot", "owned_car", "cache", "resident", "activity", "quest"]:
 		navigation_kind = ""
 	navigation_id = String(decoded.get("nav_id", "")).substr(0, 80)
 	navigation_label = String(decoded.get("nav_label", "")).substr(0, 60) if navigation_kind != "" else ""
@@ -1130,6 +1331,10 @@ func load_game() -> void:
 		var nav := Vector3(float(saved_nav[0]), float(saved_nav[1]), float(saved_nav[2]))
 		if nav.is_finite() and absf(nav.x) < 180.0 and absf(nav.z) < 180.0 and nav.y > -2.0 and nav.y < 15.0:
 			navigation_position = nav
+	var saved_quests = decoded.get("quest_journal", {})
+	quest_state = saved_quests.duplicate(true) if saved_quests is Dictionary else {}
+	if is_instance_valid(quest_director):
+		quest_director.restore(quest_state)
 	var saved_activity = decoded.get("conversation_activities", {})
 	conversation_activity_state = saved_activity.duplicate(true) if saved_activity is Dictionary else {}
 	if is_instance_valid(conversation_activities):
@@ -1211,6 +1416,7 @@ func save_game() -> void:
 		"street_finds": street_find_records,
 		"neighborhood_jobs": neighborhood_jobs.save_state() if is_instance_valid(neighborhood_jobs) else neighborhood_job_state,
 		"conversation_activities": conversation_activities.save_state() if is_instance_valid(conversation_activities) else conversation_activity_state,
+		"quest_journal": quest_director.save_state() if is_instance_valid(quest_director) else quest_state,
 		"interiors": layouts,
 		"homes": purchased_homes,
 		"furnishings": placed_furniture,
@@ -1636,6 +1842,7 @@ func begin_conversation(resident: PocketActor) -> void:
 	dialogue_panel.visible = true
 	sound.play_ui("ui")
 	update_conversation_panel()
+	quest_event("conversation", {"resident_id": resident.resident_id, "role": resident.daily_role})
 	# Social introductions genuinely lead to another person's conversation,
 	# not a pay-on-proximity placeholder.
 	if is_instance_valid(conversation_activities):
@@ -1665,6 +1872,7 @@ func select_conversation_option(index: int) -> void:
 		resident_relations[key] = record
 	sound.play_ui("ui")
 	update_conversation_panel()
+	quest_event("conversation_deep", {"branch": destination, "resident_id": conversation_actor.resident_id if is_instance_valid(conversation_actor) else -1})
 	# Persist periodically and on close, not on every displayed paragraph.
 
 
@@ -1907,6 +2115,7 @@ func purchase_gun(gun_name: String) -> void:
 			hero.equip_weapon(gun_name)
 		sound.play_ui("cash")
 		ammunition[gun_name] = int(ammunition.get(gun_name, 0)) + int(gun["ammo"])
+		quest_event("weapon_bought", {"item": gun_name, "new": not already_owned})
 		save_game()
 		refresh_shop_ui()
 		return
@@ -2092,6 +2301,7 @@ func select_commerce_option(index: int) -> void:
 			cash -= GARAGE_CAR_PRICE
 			garage_owned = true
 			spawn_garage_car()
+			quest_event("garage_action", {"kind": "purchase"})
 			save_game()
 			sound.play_ui("cash")
 			close_commerce()
@@ -2115,6 +2325,7 @@ func select_commerce_option(index: int) -> void:
 				return
 			cash -= cost
 			purchased_homes[String(commerce_lot["id"])] = true
+			quest_event("home_bought", {"lot_id": String(commerce_lot["id"])})
 			save_game()
 			var bought: Dictionary = commerce_lot.duplicate(true)
 			open_commerce_for(bought)
@@ -2129,12 +2340,14 @@ func select_commerce_option(index: int) -> void:
 			if bool(item.get("furniture", false)):
 				var kind: String = String(item["id"])
 				furniture_inventory[kind] = int(furniture_inventory.get(kind, 0)) + 1
+				quest_event("furniture_bought", {"item": kind})
 			elif item.has("heal"):
 				hero.hp = minf(hero.max_hp, hero.hp + float(item["heal"]))
 			elif item.has("outfit"):
 				outfit_color = String(item["outfit"])
 				apply_outfit()
 			commerce_header.text = "購入済み / 所持金 $" + str(cash)
+			quest_event("store_purchase", {"business": String(commerce_lot.get("business", "")), "item": String(item.get("id", ""))})
 			sound.play_ui("cash")
 			save_game()
 		"place":
@@ -2165,6 +2378,7 @@ func place_home_item(kind: String) -> void:
 	items.append(record)
 	placed_furniture[active_building] = items
 	furniture_inventory[kind] = int(furniture_inventory[kind]) - 1
+	quest_event("furniture_placed", {"item": kind})
 	save_game()
 	close_commerce()
 	show_message("FURNITURE PLACED")

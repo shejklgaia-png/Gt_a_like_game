@@ -1,6 +1,8 @@
 extends CharacterBody3D
 class_name PocketVehicle
 
+signal ran_into_hero(vehicle: PocketVehicle, speed: float)
+
 const Shapes = preload("res://scripts/shape_factory.gd")
 const TrafficRules = preload("res://scripts/traffic_rules.gd")
 var occupied: bool = false
@@ -29,6 +31,7 @@ var sensor_timer: float = 0.0
 var front_blocked: bool = false
 var front_clearance: float = 13.0
 var stationary_time: float = 0.0
+var hero_impact_cooldown: float = 0.0
 
 
 func setup(p_axis: int, p_travel: float, p_lane: float, color: Color) -> void:
@@ -127,6 +130,7 @@ func pedestrian_ahead() -> bool:
 
 
 func _physics_process(delta: float) -> void:
+	hero_impact_cooldown = maxf(0.0, hero_impact_cooldown - delta)
 	if being_stolen:
 		drive_speed = move_toward(drive_speed, 0.0, delta * 36.0)
 		velocity = -global_transform.basis.z * drive_speed
@@ -198,6 +202,14 @@ func _physics_process(delta: float) -> void:
 	# traversable by the player while retaining normal AI lane following.
 	velocity.y = -1.0 if is_on_floor() else velocity.y - 19.6 * delta
 	move_and_slide()
+	if not occupied and not being_stolen and absf(drive_speed) >= 3.5 and hero_impact_cooldown <= 0.0:
+		for contact_index in range(get_slide_collision_count()):
+			var contact := get_slide_collision(contact_index)
+			var victim = contact.get_collider()
+			if victim is PocketHero and not victim.dead:
+				hero_impact_cooldown = 6.0
+				ran_into_hero.emit(self, absf(drive_speed))
+				break
 	total_driven += Vector2(velocity.x, velocity.z).length() * delta
 	if drive_speed < 0.2:
 		stationary_time += delta

@@ -35,7 +35,7 @@ func _ready() -> void:
 	var tab_bar := HBoxContainer.new()
 	tab_bar.add_theme_constant_override("separation", 4)
 	body.add_child(tab_bar)
-	for section in ["仕事", "店舗", "住居", "車両", "情報"]:
+	for section in ["仕事", "店舗", "住居", "車両", "情報", "依頼"]:
 		var tab := make_button(section, Color("#365364"), 15)
 		tab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		tab.custom_minimum_size.y = 45
@@ -121,7 +121,7 @@ func close_phone() -> void:
 func open_page(section: String) -> void:
 	page = section
 	for index in range(tabs.size()):
-		tabs[index].modulate = Color("#ffe6b1") if index == ["仕事", "店舗", "住居", "車両", "情報"].find(page) else Color.WHITE
+		tabs[index].modulate = Color("#ffe6b1") if index == ["仕事", "店舗", "住居", "車両", "情報", "依頼"].find(page) else Color.WHITE
 	for child in entries.get_children():
 		entries.remove_child(child)
 		child.queue_free()
@@ -137,6 +137,8 @@ func open_page(section: String) -> void:
 			fill_cars()
 		"情報":
 			fill_discoveries()
+		"依頼":
+			fill_quests()
 
 
 func note(message: String) -> void:
@@ -310,6 +312,61 @@ func fill_discoveries() -> void:
 	settings.custom_minimum_size.y = 58
 	settings.pressed.connect(open_settings)
 	entries.add_child(settings)
+
+
+func fill_quests() -> void:
+	var director: PocketQuestDirector = game.quest_director
+	if not is_instance_valid(director):
+		note("依頼データは準備中です")
+		return
+	note("発見と完了の記録：%d/200件完了  |  進行中：%d/3件" % [director.completed_count(), director.active.size()])
+	note("街での呼びかけ・会話・警官・事故・買物・室内・戦闘など、25種類の出来事から200件の物語が発生します。")
+	if director.active.is_empty():
+		note("進行中の依頼はありません。街を歩いたり住民に話しかけてみてください。")
+	for item in director.active:
+		var quest: Dictionary = director.get_quest(String(item["id"]))
+		var caption := "%s  %s\n%s" % [String(quest["id"]), String(quest["title"]), director.describe(item)]
+		var button := make_button(caption, Color("#625c7d"), 15)
+		button.custom_minimum_size.y = 85
+		button.pressed.connect(select_quest.bind(String(quest["id"])))
+		entries.add_child(button)
+		var explanation := add_text(entries, 14, Color("#bbccd8"))
+		explanation.text = String(quest.get("hook", ""))
+		explanation.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		var abandon_button := make_button("この依頼を中断する（報酬なし）", Color("#644b54"), 14)
+		abandon_button.custom_minimum_size.y = 40
+		abandon_button.pressed.connect(abandon_quest.bind(String(quest["id"])))
+		entries.add_child(abandon_button)
+	note("完了済みの記録：")
+	var shown := 0
+	for id in director.catalog:
+		if not director.completed.has(String(id)):
+			continue
+		var row: Dictionary = director.get_quest(String(id))
+		var label := add_text(entries, 14, Color("#8fbeb1"))
+		label.text = "✓ %s  %s" % [id, String(row["title"])]
+		shown += 1
+		if shown >= 20:
+			break
+	if shown == 0:
+		note("まだありません。依頼の完了がここに記録されます。")
+	elif director.completed_count() > shown:
+		note("ほか %d件はセーブデータに記録されています。" % (director.completed_count() - shown))
+
+
+func select_quest(id: String) -> void:
+	var row: Dictionary = game.quest_director.get_quest(id)
+	var target: Dictionary = game.quest_waypoint(id)
+	if target.is_empty():
+		note("この段階は地図に固定できません。依頼の説明に従って行動してください。")
+		return
+	game.set_city_waypoint("quest", id, String(row.get("title", "")), target["point"])
+	close_phone()
+
+
+func abandon_quest(id: String) -> void:
+	game.cancel_quest(id)
+	open_page("依頼")
 
 
 func open_settings() -> void:
