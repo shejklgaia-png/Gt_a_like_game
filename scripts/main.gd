@@ -1019,7 +1019,11 @@ func update_hud() -> void:
 	var current_position := car_driven.global_position if car_driven != null else hero.global_position
 	var waypoint := mission_point - current_position
 	var heading := waypoint_arrow(waypoint)
-	mission_label.text = "DELIVERY %s %dm  •  %s [%d] %s" % [heading, int(waypoint.length()), "PICKUP" if mission_stage == 0 else "DROP OFF", deliveries, ("%.0fs" % mission_limit) if mission_stage == 1 else ""]
+	var contract: Dictionary = GameData.delivery_contract(deliveries)
+	var ground_distance := Vector2(waypoint.x, waypoint.z).length()
+	var objective := "PICK UP" if mission_stage == 0 else ("DROP OFF %.0fs" % maxf(0.0, mission_limit))
+	mission_label.text = "#%d %s  %s %dm  •  %s" % [deliveries + 1, String(contract["title"]), heading, roundi(ground_distance), objective]
+	mission_label.add_theme_color_override("font_color", Color("#ff8585") if mission_stage == 1 and mission_limit <= 15.0 else Color("#f5d58c"))
 	var aim_dir := -camera.global_transform.basis.z
 	aim_dir.y = 0.0
 	aim_dir = aim_dir.normalized()
