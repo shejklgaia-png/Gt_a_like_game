@@ -190,6 +190,19 @@ func update_marker() -> void:
 		marker.position = objective_position()
 
 
+func abandon() -> bool:
+	# A player must not be trapped by an unfinished request or an NPC who
+	# disappears from the simulated city. No payout or progress is awarded.
+	if not active:
+		return false
+	active = false
+	kind = ""
+	giver_id = -1
+	step_index = 0
+	update_marker()
+	return true
+
+
 func finish() -> Dictionary:
 	if not active:
 		return {}
