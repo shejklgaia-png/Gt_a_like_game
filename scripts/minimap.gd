@@ -50,6 +50,10 @@ func _draw() -> void:
 				draw_line(previous, point, Color("#647583"), 3)
 			previous = point
 	for building in game.city.buildings:
+		# A partially rebuilt/tearing-down district can contain a temporary
+		# incomplete lot: never crash the HUD drawing pass over absent keys.
+		if not building.has("door") or not building.has("position"):
+			continue
 		if bool(building.get("alley", false)):
 			var lot_center: Vector3 = building["block_center"]
 			draw_line(to_map(lot_center + Vector3(8.4, 0, -17), focus), to_map(lot_center + Vector3(8.4, 0, 17), focus), Color("#8b9da0"), 2)
