@@ -63,6 +63,16 @@ jobs:
           test -s build/web/index.html
           test -s build/web/index.wasm
 
+      # Keep a playable Web export downloadable even when GitHub Pages is not
+      # enabled in repository Settings > Pages yet.
+      - name: Upload playable Web export
+        uses: actions/upload-artifact@v4
+        with:
+          name: pocket-district-web-preview
+          path: build/web/
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Set up GitHub Pages
         uses: actions/configure-pages@v5
 
