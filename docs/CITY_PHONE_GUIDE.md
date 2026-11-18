@@ -8,8 +8,8 @@ The procedural city has multiple systems (timed courier contracts, neighborhood 
 
 1. Tap **CITY** beside the pause button at the top right. On keyboard, press **B**.
 2. Pick one of five tabs: **仕事 (Jobs)**, **店舗 (Stores)**, **住居 (Homes)**, **車両 (Vehicles)**, **情報 (Info / Exploration)**.
-3. Tap any relevant destination. The phone closes, time resumes, and **GPS: target + arrow + distance** appears below the courier banner.
-4. On the compact minimap, follow the **teal destination marker/line**. If the target is farther than the minimap's extent, its marker appears at the edge in the correct direction. The courier package remains visibly golden.
+3. Tap any relevant destination. The phone closes, time resumes, and **GPS: destination + next-route direction + estimated route distance** appears below the courier banner.
+4. On the compact minimap, follow the **teal route through open A* map cells and destination marker**. If the target is farther than the minimap's extent, its marker appears at the edge in the correct direction. The courier package remains visibly golden.
 5. At the store, car, job board, resident or collectible, press **ACTION** to perform the real interaction. The phone does **not** teleport the player or allow distant item purchases.
 6. Reopen CITY to change the target or tap **案内解除** to clear the GPS. Escape, E or B closes the phone on a keyboard.
 
@@ -33,14 +33,17 @@ The procedural city has multiple systems (timed courier contracts, neighborhood 
 - Vehicle and resident GPS tracks their moving world coordinates; facility and discovered-cache GPS point to stable addresses.
 - GPS selection is optional; courier and side jobs can continue concurrently without overwriting each other's underlying mission state.
 - GPS kind, address and label are stored as optional save fields, preserving compatibility with older saves.
-- The map gives bearing and distance, **not** full turn-by-turn road routing. Walking across intersections and driving still use normal gameplay controls.
+- GPS now uses the city's existing building-blocked two-meter A* grid to plot a traversable **approximate** route rather than a straight line through solid building footprints. The HUD arrow points to the next reachable step and its distance follows the route. When within 3.3m horizontally of the goal, the HUD changes to an **arrival / ACTION** prompt. The route is recalculated at most once per 1.5 seconds when deviating by 12m, or immediately when a tracked objective moves more than 3m.
+- The map still does **not** guarantee sidewalk-only, traffic-light-safe, ramp-aware or disability-accessible paths, nor provide spoken or street-named turn-by-turn instructions. The player still controls their own walking and driving; the route is advisory. If routing is momentarily unavailable, the map falls back to a direct bearing.
 
 ## Implementation and QA
 
 - `scripts/city_phone.gd` dynamically reads the live city services and exposes a modal, scrollable five-tab menu. Menus pause simulation and prevent accidental joystick/camera actions.
 - `scripts/main.gd` owns persistent GPS state, dynamic destination resolution, input routing and the HUD banner.
-- `scripts/minimap.gd` renders the offscreen-aware route marker and directional ray.
+- `scripts/minimap.gd` renders the clipped A* route polyline, offscreen destination marker, and fallback direction.
+- `scripts/city_route.gd` caches routes using `PocketNavGrid`; no new city grid or extra physical scene objects are generated.
 - `scripts/city_phone_test.gd` covers tab availability, touch button, modal state, nonteleport navigation, changing job waypoints, moving owned car targets, facility/caches, clearing/reloading route state; runs in the Godot 4.4.1 and 4.7.2 CI matrix.
+- `scripts/city_route_test.gd` validates 12 building-avoiding routes, real detours, nearby turn guidance, refresh throttling, moving goal re-pathing, route arrival and GPS save/load.
 - Android real-device tap targets, screen-reader use, UI scaling below 360px, driving readability and route usability remain to be playtested.
 
 No SERA changes.
