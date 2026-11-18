@@ -4,7 +4,7 @@ class_name PocketNeighborhoodJobs
 ## Each assignment has two inspected locations; completion and progress persist.
 
 const Shapes = preload("res://scripts/shape_factory.gd")
-const CONTRACTS: Array[Dictionary] = [
+const CONTRACTS := [
 	{"title": "STREET SURVEY", "places": ["office", "convenience"], "reward": 220},
 	{"title": "MARKET INSPECTION", "places": ["supermarket", "restaurant"], "reward": 270},
 	{"title": "NIGHT DISTRICT CHECK", "places": ["lounge", "club"], "reward": 320}
@@ -27,7 +27,8 @@ func setup(buildings: Array[Dictionary], saved: Dictionary = {}) -> void:
 	var board_lot := find_lot("office")
 	if board_lot.is_empty():
 		return
-	board_position = Vector3(board_lot["door"]) + Vector3(-3.6, 0.0, -0.9)
+	var office_door: Vector3 = board_lot["door"]
+	board_position = office_door + Vector3(-3.6, 0.0, -0.9)
 	board_marker = Node3D.new()
 	board_marker.name = "NeighborhoodJobBoard"
 	board_marker.position = board_position
@@ -67,7 +68,10 @@ func objective_position() -> Vector3:
 	var contract: Dictionary = active_contract()
 	var businesses: Array = contract["places"]
 	var lot := find_lot(String(businesses[step_index]))
-	return Vector3(lot["door"]) if not lot.is_empty() else board_position
+	if not lot.is_empty():
+		var destination: Vector3 = lot["door"]
+		return destination
+	return board_position
 
 
 func update_marker() -> void:
